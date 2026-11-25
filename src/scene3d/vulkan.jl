@@ -2,7 +2,7 @@
     SceneVulkan(library, vendor, product; faces=256)
 
 Select the Linux Vulkan graphics backend and its exact PCI vendor and
-product IDs. Pass an absolute path to the rebuilt Vetra Vulkan bridge.
+product IDs. Pass an absolute path to the rebuilt Vellum Vulkan bridge.
 The constructor validates the path, selector, and triangle limit (1–512).
 The native loader and device open only when allocating a surface.
 All driver calls belong to the backend's creating thread.
@@ -24,7 +24,7 @@ struct SceneVulkan <: Backend
 end
 
 """Report the Vulkan scene profile, color detachment, depth picking and target size."""
-Vetra.capabilities(::SceneVulkan) = Capabilities(
+Vellum.capabilities(::SceneVulkan) = Capabilities(
     features=(Symbol("scene3d.opaque_triangles"),Symbol("scene3d.pick_id")),
     profiles=(:scene3d_vulkan,),max_image_size=(MAX_EDGE,MAX_EDGE))
 
@@ -122,7 +122,7 @@ once and composed on the GPU for every completed scene.
 Wrong-thread use, missing bridge symbols, or invalid dimensions throw.
 Device and driver failures raise an error after releasing partial resources.
 """
-Vetra.make_surface(backend::SceneVulkan,size;overlay::Union{Nothing,SceneOverlay}=nothing) =
+Vellum.make_surface(backend::SceneVulkan,size;overlay::Union{Nothing,SceneOverlay}=nothing) =
     open_surface(backend,size,overlay,nothing)
 
 """
@@ -224,7 +224,7 @@ bytes when the resolved mesh, object IDs and colors match. Call `wait`
 to publish and `cancel!` to discard. A foreign backend, stale resource,
 occupied target or exceeded limit raises an error before publication.
 """
-function Vetra.submit!(backend::SceneVulkan,target::VulkanTarget,scene::Scene)
+function Vellum.submit!(backend::SceneVulkan,target::VulkanTarget,scene::Scene)
     started = time_ns()
     target.backend === backend || invalid("foreign Vulkan scene backend")
     require_target(target)
@@ -344,10 +344,10 @@ function Base.wait(ticket::VulkanTicket)
 end
 
 """Whether this ticket completed successfully, even if another ticket later replaced its pixels."""
-Vetra.completed(ticket::VulkanTicket) = ticket.state === :completed
+Vellum.completed(ticket::VulkanTicket) = ticket.state === :completed
 
 """Drain a pending render and leave the previously published image intact."""
-function Vetra.cancel!(ticket::VulkanTicket)
+function Vellum.cancel!(ticket::VulkanTicket)
     require_owner(ticket.surface.backend)
     ticket.state === :pending && finish(ticket,false)
     return nothing

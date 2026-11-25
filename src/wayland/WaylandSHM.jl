@@ -2,14 +2,14 @@
 module WaylandSHM
 
 import Libdl
-import ..Vetra
-import ..Vetra.CPUBackend: CPUSurface
-import ..Vetra: present!
+import ..Vellum
+import ..Vellum.CPUBackend: CPUSurface
+import ..Vellum: present!
 
 """Maximum mapped physical extent per shared-memory slot, in pixels."""
 const MAX_EXTENT = (4096, 2160)
 
-"""Entry points in the checked-in shared-memory bridge."""
+"""Entry points required of the supplied shared-memory bridge."""
 const ENTRY_POINTS = (:open, :present, :detach, :stats, :capture, :close)
 
 """Ordered names of the native counters and current buffer state."""
@@ -17,8 +17,11 @@ const STATS = (:revision, :commits, :staged_bytes, :releases, :in_flight, :mappe
     :buffer_objects, :width, :height, :detached, :damage_x, :damage_y, :damage_width,
     :damage_height, :copied_pixels, :slot, :connection_failed, :protocol_buffer_damage)
 
+"""A thread-owned presenter for a borrowed Wayland surface."""
+abstract type Presenter <: Vellum.Presenter end
+
 """
-    Presenter(library, display, shm, surface; max_size) <: Vetra.Presenter
+    Presenter(library, display, shm, surface; max_size) <: Vellum.Presenter
 
 Bind a Linux `wl_surface*` to a two-slot Wayland shared-memory pool. Pass
 an absolute bridge path and live `wl_display*`, `wl_shm*`, and `wl_surface*`
@@ -33,14 +36,14 @@ Invalid arguments throw `ArgumentError`. Missing bridge symbols, file or
 Wayland allocation failures, exhausted budgets, or duplicate bindings
 throw before returning a usable presenter.
 """
-mutable struct Presenter <: Vetra.Presenter
+mutable struct BridgePresenter <: Presenter
     library::Ptr{Cvoid}
     handle::Ptr{Cvoid}
     entry::NamedTuple{ENTRY_POINTS,NTuple{6,Ptr{Cvoid}}}
     owner::Int
     limit::NTuple{2,Int}
 
-    function Presenter(library::AbstractString, display::Ptr{Cvoid}, shm::Ptr{Cvoid}, surface::Ptr{Cvoid};
+    function BridgePresenter(library::AbstractString, display::Ptr{Cvoid}, shm::Ptr{Cvoid}, surface::Ptr{Cvoid};
                        max_size::Tuple{Integer,Integer})
         Sys.islinux() || throw(ArgumentError("the Wayland SHM bridge requires Linux"))
         isabspath(library) && isfile(library) || throw(ArgumentError("provide an absolute Wayland SHM bridge path"))
@@ -60,13 +63,16 @@ mutable struct Presenter <: Vetra.Presenter
     end
 end
 
+Presenter(library::AbstractString, display, shm, surface; max_size) =
+    BridgePresenter(library, display, shm, surface; max_size)
+
 """
     handle(presenter) -> Ptr{Cvoid}
 
 Return the live bridge context on its owner thread. Closed or cross-thread
 access raises `ArgumentError` before calling Wayland.
 """
-function handle(presenter::Presenter)
+function handle(presenter::BridgePresenter)
     Threads.threadid() == presenter.owner || throw(ArgumentError("wrong Wayland SHM owner thread"))
     presenter.handle != C_NULL || throw(ArgumentError("Wayland SHM presenter is closed"))
     return presenter.handle
@@ -89,7 +95,7 @@ waits for and dispatches events before retrying. Invalid geometry, detached
 or invalid sources, and stale revisions throw `ArgumentError`. Native errors
 throw without a new accepted revision. Compositor delivery has separate feedback.
 """
-function present!(presenter::Presenter, source::CPUSurface, revision::Integer;
+function present!(presenter::BridgePresenter, source::CPUSurface, revision::Integer;
                   damage::Union{Nothing,Tuple{Integer,Integer,Integer,Integer}}=nothing)
     handle(presenter)
     0 <= revision <= typemax(UInt64) || throw(ArgumentError("invalid Wayland revision"))
@@ -120,7 +126,7 @@ Queue a null attachment and reject any future buffer offers. Idempotent
 while open. The app dispatches releases before closing the presenter and
 then destroys the window. Closed or wrong-thread access raises `ArgumentError`.
 """
-function detach!(presenter::Presenter)
+function detach!(presenter::BridgePresenter)
     result = ccall(presenter.entry.detach, Cint, (Ptr{Cvoid},), handle(presenter))
     result == 0 || error("Wayland SHM detach failed with status $result")
     return nothing
@@ -135,7 +141,7 @@ the repair of old slot content. `buffer_objects` counts native buffer
 creations including replacements. Performs no event dispatch or pixel copy.
 Invalid presenter ownership and closed handles raise `ArgumentError`.
 """
-function statistics(presenter::Presenter)
+function statistics(presenter::BridgePresenter)
     context = handle(presenter)
     output = Vector{UInt64}(undef, length(STATS))
     result = ccall(presenter.entry.stats, Cint, (Ptr{Cvoid}, Ptr{UInt64}, Csize_t), context, output, length(output))
@@ -144,16 +150,16 @@ function statistics(presenter::Presenter)
 end
 
 """
-    capture(presenter) -> Vetra.Image
+    capture(presenter) -> Vellum.Image
 
 Explicitly copy the last committed client buffer to a detached premultiplied
 RGBA image for diagnostics. Throws before the first commit or on invalid
 presenter ownership. Captures the application's own staging memory.
 """
-function capture(presenter::Presenter)
+function capture(presenter::BridgePresenter)
     state = statistics(presenter)
     state.commits > 0 || throw(ArgumentError("no Wayland SHM buffer has been offered"))
-    image = Vetra.Image(Int(state.width), Int(state.height))
+    image = Vellum.Image(Int(state.width), Int(state.height))
     result = ccall(presenter.entry.capture, Cint, (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
         handle(presenter), image.data, length(image.data))
     result == 0 || error("Wayland SHM capture failed with status $result")
@@ -169,7 +175,7 @@ ownership for retry after event dispatch. A terminal display connection
 error permits teardown. The host window and protocol handles remain owned
 by the host. Repeated close on the creating thread is harmless.
 """
-function Base.close(presenter::Presenter)
+function Base.close(presenter::BridgePresenter)
     Threads.threadid() == presenter.owner || throw(ArgumentError("wrong Wayland SHM owner thread"))
     presenter.handle == C_NULL && return nothing
     result = ccall(presenter.entry.close, Cint, (Ptr{Cvoid},), presenter.handle)
@@ -178,6 +184,11 @@ function Base.close(presenter::Presenter)
     presenter.handle = C_NULL
     Libdl.dlclose(presenter.library)
     return nothing
+end
+
+if Sys.islinux()
+    using Wayland_jll: libwayland_client
+    include("shared_memory.jl")
 end
 
 end

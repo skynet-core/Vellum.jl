@@ -1,13 +1,9 @@
 """Select, stage and retain bounded source pages for the shared native GPU shader."""
 module RasterPages
 
-import ...Vetra as V
+import ...Vellum as V
+import ...Vellum: ImageStorage as Storage, ImageTiles as Tiles
 import ..RasterAssets as Dense
-
-"""Adapter for explicit pixel layout, leases and color conversion."""
-const Storage = V.ImageStorage
-"""Resolver API for exact immutable source revisions."""
-const Tiles = V.ImageTiles
 """Version marker for packets containing sparse source lookup tables."""
 const MAGIC = 20261123
 """Page width and height in source pixels."""

@@ -632,7 +632,7 @@ function computeBounds(arrangement::Arrangement;
     for path in computePaths(arrangement)
         addPath(fullPath, path)
     end
-    Vetra.transform(fullPath, transform)
+    Vellum.transform(fullPath, transform)
     return computeBounds(fullPath)
 end
 

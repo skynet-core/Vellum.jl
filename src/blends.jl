@@ -317,9 +317,8 @@ end
 function blendColorBurn(backdrop::ColorRGBX, source::ColorRGBX)
     bd = _rgbaWrap(backdrop)
     sc = _rgbaWrap(source)
-    f(bv::UInt8, sv::UInt8) =
-        bv == 0xff ? 0xff : sv == 0x00 ? 0x00 :
-            UInt8(255 - min(255, 255 * (255 - Int(bv)) ÷ Int(sv)))
+    # The saturated quotient also gives the defined endpoints for a zero divisor.
+    f(bv::UInt8, sv::UInt8) = UInt8(255 - min(255, 255 * (255 - Int(bv)) ÷ max(1, Int(sv))))
     mixed = ColorRGBA(f(bd.r, sc.r), f(bd.g, sc.g), f(bd.b, sc.b), 0x00)
     return rgbx(_alphaFixByte(bd, sc, mixed))
 end
@@ -351,9 +350,7 @@ end
 function blendColorDodge(backdrop::ColorRGBX, source::ColorRGBX)
     bd = _rgbaWrap(backdrop)
     sc = _rgbaWrap(source)
-    f(bv::UInt8, sv::UInt8) =
-        bv == 0x00 ? 0x00 : sv == 0xff ? 0xff :
-            UInt8(min(255, 255 * Int(bv) ÷ (255 - Int(sv))))
+    f(bv::UInt8, sv::UInt8) = UInt8(min(255, 255 * Int(bv) ÷ max(1, 255 - Int(sv))))
     mixed = ColorRGBA(f(bd.r, sc.r), f(bd.g, sc.g), f(bd.b, sc.b), 0x00)
     return rgbx(_alphaFixByte(bd, sc, mixed))
 end

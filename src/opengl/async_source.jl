@@ -10,7 +10,7 @@ end
 struct SourceWork
     number::UInt64
     base::UInt64
-    frame::Vetra.Frame
+    frame::Vellum.Frame
     resident::RasterPages.Resident
     shapes::FrameCurves.ShapeCache
 end
@@ -73,7 +73,7 @@ raises, leaving GPU state untouched.
 """
 function prepare_source_job(work,backend,size,cancelled)
     RasterPages.check_cancelled(cancelled)
-    plan = Vetra.prepare(backend,work.frame)
+    plan = Vellum.prepare(backend,work.frame)
     try
         staged = stage_frame(plan,size,work.resident,backend.raster_registry;
                              cancelled,shapes=work.shapes,blur_radius=box_blur_radius(backend))
@@ -264,7 +264,7 @@ Withdraw a queued, loading or ready request. Cancellation is idempotent
 and may be called from any Julia thread. A claimed upload and its native
 fence belong to the owner thread. An active provider call can finish.
 """
-function Vetra.cancel!(ticket::Preparation)
+function Vellum.cancel!(ticket::Preparation)
     queue = ticket.queue
     lock(queue.changed) do
         ticket.number == queue.number && queue.state in (:queued,:loading,:ready) &&

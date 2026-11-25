@@ -1,8 +1,8 @@
 """Edit a sparse paint layer with pressure-sensitive round strokes and checkpointed history."""
 module Brushes
 
-using ..Vetra: ImageTiles
-using ..Vetra.ImageTiles: RgbaTile
+using ..Vellum: ImageTiles
+using ..Vellum.ImageTiles: RgbaTile
 
 export PointerSample, RoundBrush, PaintLayer, begin_stroke!, append_samples!,
        commit_stroke!, cancel_stroke!, undo!, redo!, paint_revision, paint_usage

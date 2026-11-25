@@ -15,7 +15,7 @@
 # The field is named `mat`, as upstream; getTransform/setTransform/
 # resetTransform are the accessors. lineDash and the text state landed
 # with T009 (text drawing needs both); upstream `ContextState` saves
-# font/fontSize/textAlign/lineDash; Vetra also saves textBaseline.
+# font/fontSize/textAlign/lineDash; Vellum also saves textBaseline.
 
 const SomePaint = Union{Paint, ColorRGB, ColorRGBA, ColorRGBX, String}
 
@@ -95,14 +95,14 @@ Context(width::Int, height::Int) = Context(newImage(width, height))
 
 # ---------- state ----------
 
-"""Upstream `state()`: the snapshot a save pushes (mask copied, layer nil)."""
-function _ctxState(ctx::Context; layer = nothing)
+"""Capture the current state, retaining its layer and copying its clip mask."""
+function _ctxState(ctx::Context)
     return ContextState(
         ctx.fillStyle, ctx.strokeStyle, ctx.globalAlpha,
         ctx.lineWidth, ctx.miterLimit, ctx.lineCap, ctx.lineJoin,
         ctx.mat,
         ctx.mask === nothing ? nothing : copy(ctx.mask),
-        layer,
+        ctx.layer,
         ctx.font, ctx.fontSize, ctx.textAlign, ctx.textBaseline, copy(ctx.lineDash))
 end
 
@@ -129,8 +129,9 @@ Push the current state and start drawing on a fresh full-size layer
 `ctx.layer`); `restore` composites the layer back.
 """
 function saveLayer(ctx::Context)
-    push!(ctx.stateStack, _ctxState(ctx; layer = ctx.layer))
-    ctx.layer = newImage(ctx.image.width, ctx.image.height)
+    layer = newImage(ctx.image.width, ctx.image.height)
+    push!(ctx.stateStack, _ctxState(ctx))
+    ctx.layer = layer
     return nothing
 end
 
@@ -161,7 +162,7 @@ function restore(ctx::Context)
     ctx.mat = state.mat
     ctx.mask = state.mask
     ctx.layer = state.layer
-    if poppedLayer !== nothing
+    if poppedLayer !== nothing && poppedLayer !== state.layer
         if poppedMask !== nothing
             draw(poppedLayer, poppedMask; blendMode = MaskBlend)
         end
@@ -429,6 +430,21 @@ end
 
 # ---------- drawing ----------
 
+# Discard an implicit drawing layer when painting or opacity adjustment fails.
+function _withDrawingLayer(draw!, ctx::Context, opacity=1f0)
+    saveLayer(ctx)
+    try
+        draw!(ctx.layer)
+        opacity == 1f0 || applyOpacity(ctx.layer, opacity)
+    catch
+        ctx.layer = ctx.stateStack[end].layer
+        restore(ctx)
+        rethrow()
+    end
+    restore(ctx)
+    return nothing
+end
+
 """
 Fill `path` into `image` with the current fillStyle (upstream private
 `fill`, L139-156): when `globalAlpha != 1` the fill goes to a fresh layer,
@@ -436,16 +452,14 @@ the whole layer is scaled by `globalAlpha`, and restore composites it (the
 mask applies through that restore, so the opacity lands under the clip).
 """
 function fill(ctx::Context, image::Image, path::Path, windingRule = NonZero)
-    img = image
-    if ctx.globalAlpha != Float32(1)
-        saveLayer(ctx)
-        img = ctx.layer
+    function paint!(target)
+        fillPath(target, path, convert(Paint, ctx.fillStyle),
+            transform = ctx.mat, windingRule = windingRule)
     end
-    fillPath(img, path, convert(Paint, ctx.fillStyle),
-        transform = ctx.mat, windingRule = windingRule)
-    if ctx.globalAlpha != Float32(1)
-        applyOpacity(ctx.layer, ctx.globalAlpha)
-        restore(ctx)
+    if ctx.globalAlpha == 1f0
+        paint!(image)
+    else
+        _withDrawingLayer(paint!, ctx, ctx.globalAlpha)
     end
     return nothing
 end
@@ -459,9 +473,9 @@ The style is converted at draw time, so a hex string assigned to
 """
 function fill(ctx::Context, path::Path, windingRule = NonZero)
     if ctx.mask !== nothing && ctx.layer === nothing
-        saveLayer(ctx)
-        fill(ctx, ctx.layer, path, windingRule)
-        restore(ctx)
+        _withDrawingLayer(ctx) do layer
+            fill(ctx, layer, path, windingRule)
+        end
     elseif ctx.layer !== nothing
         fill(ctx, ctx.layer, path, windingRule)
     else
@@ -482,18 +496,16 @@ lineDash (upstream private `stroke`, L157-177): the same globalAlpha
 layering as private `fill`.
 """
 function stroke(ctx::Context, image::Image, path::Path)
-    img = image
-    if ctx.globalAlpha != Float32(1)
-        saveLayer(ctx)
-        img = ctx.layer
+    function paint!(target)
+        strokePath(target, path, convert(Paint, ctx.strokeStyle),
+            transform = ctx.mat, strokeWidth = ctx.lineWidth,
+            lineCap = ctx.lineCap, lineJoin = ctx.lineJoin,
+            miterLimit = ctx.miterLimit, dashes = ctx.lineDash)
     end
-    strokePath(img, path, convert(Paint, ctx.strokeStyle),
-        transform = ctx.mat, strokeWidth = ctx.lineWidth,
-        lineCap = ctx.lineCap, lineJoin = ctx.lineJoin,
-        miterLimit = ctx.miterLimit, dashes = ctx.lineDash)
-    if ctx.globalAlpha != Float32(1)
-        applyOpacity(ctx.layer, ctx.globalAlpha)
-        restore(ctx)
+    if ctx.globalAlpha == 1f0
+        paint!(image)
+    else
+        _withDrawingLayer(paint!, ctx, ctx.globalAlpha)
     end
     return nothing
 end
@@ -501,9 +513,9 @@ end
 """Stroke `path` (upstream `stroke`, L410-423): mask/layer routing as `fill`."""
 function stroke(ctx::Context, path::Path)
     if ctx.mask !== nothing && ctx.layer === nothing
-        saveLayer(ctx)
-        stroke(ctx, ctx.layer, path)
-        restore(ctx)
+        _withDrawingLayer(ctx) do layer
+            stroke(ctx, layer, path)
+        end
     elseif ctx.layer !== nothing
         stroke(ctx, ctx.layer, path)
     else
@@ -543,18 +555,29 @@ function clip(ctx::Context, windingRule = NonZero)
 end
 
 """
-Erase the rectangular area (upstream `clearRect`, L425-441): the
-zero-alpha Overwrite paint over a fresh rect path, into the active layer
-when there is one, else the root image.
+Erase the transformed rectangle in the active layer or root image, respecting
+the current clip. Global alpha and drawing styles do not affect erasure.
 """
 function clearRect(ctx::Context, r::Rect)
-    paint = Paint(ColorRGBA(0x00, 0x00, 0x00, 0x00); blendMode = OverwriteBlend)
+    _clearRect!(something(ctx.layer,ctx.image),r,ctx.mat,ctx.mask)
+end
+
+function _clearRect!(image::Image,r::Rect,transform::Mat3,mask)
     p = newPath()
     rect(p, r)
-    if ctx.layer !== nothing
-        fillPath(ctx.layer, p, paint, transform = ctx.mat)
+    if mask === nothing
+        paint = Paint(rgba(0,0,0,0);blendMode=OverwriteBlend)
+        fillPath(image,p,paint;transform)
     else
-        fillPath(ctx.image, p, paint, transform = ctx.mat)
+        erased = newImage(image.width,image.height)
+        fillPath(erased,p,Paint(rgba(255,255,255,255));transform)
+        draw(erased,mask;blendMode=MaskBlend)
+        for offset in 1:4:length(image.data)
+            keep = 255 - Int(erased.data[offset+3])
+            for j in offset:offset+3
+                image.data[j] = Int(image.data[j])*keep ÷ 255
+            end
+        end
     end
     return nothing
 end
@@ -612,10 +635,13 @@ function drawImage(
     savedFillStyle = ctx.fillStyle
     ctx.fillStyle = Paint(image,
         imageMat = imageMat)
-    p = newPath()
-    rect(p, dx, dy, dWidth, dHeight)
-    fill(ctx, p)
-    ctx.fillStyle = savedFillStyle
+    try
+        p = newPath()
+        rect(p, dx, dy, dWidth, dHeight)
+        fill(ctx, p)
+    finally
+        ctx.fillStyle = savedFillStyle
+    end
     return nothing
 end
 
@@ -770,18 +796,16 @@ function _ctxFillTextImage(ctx::Context, image::Image, text::String, at::Vec2)
             scale(font))))
     end
     _ctxSetPaint(font, ctx.fillStyle)
-    var_image = image
-    if ctx.globalAlpha != Float32(1)
-        saveLayer(ctx)
-        var_image = ctx.layer
+    function paint!(target)
+        fillText(
+            target, font, text,
+            transform = ctx.mat * translate(var_at),
+            hAlign = ctx.textAlign)
     end
-    fillText(
-        var_image, font, text,
-        transform = ctx.mat * translate(var_at),
-        hAlign = ctx.textAlign)
-    if ctx.globalAlpha != Float32(1)
-        applyOpacity(ctx.layer, ctx.globalAlpha)
-        restore(ctx)
+    if ctx.globalAlpha == 1f0
+        paint!(image)
+    else
+        _withDrawingLayer(paint!, ctx, ctx.globalAlpha)
     end
     return nothing
 end
@@ -789,9 +813,9 @@ end
 """Draw `text` at `at` with the current fillStyle (upstream `fillText`)."""
 function fillText(ctx::Context, text::String, at::Vec2)
     if ctx.mask !== nothing && ctx.layer === nothing
-        saveLayer(ctx)
-        _ctxFillTextImage(ctx, ctx.layer, text, at)
-        restore(ctx)
+        _withDrawingLayer(ctx) do layer
+            _ctxFillTextImage(ctx, layer, text, at)
+        end
     elseif ctx.layer !== nothing
         _ctxFillTextImage(ctx, ctx.layer, text, at)
     else
@@ -816,20 +840,18 @@ function _ctxStrokeTextImage(ctx::Context, image::Image, text::String,
     var_at = Vec2(at.x, at.y - Float32(roundHalfAway(
         ascent(font.typeface) * scale(font))))
     _ctxSetPaint(font, ctx.strokeStyle)
-    var_image = image
-    if ctx.globalAlpha != Float32(1)
-        saveLayer(ctx)
-        var_image = ctx.layer
+    function paint!(target)
+        strokeText(
+            target, font, text,
+            transform = ctx.mat * translate(var_at),
+            strokeWidth = ctx.lineWidth, hAlign = ctx.textAlign,
+            lineCap = ctx.lineCap, lineJoin = ctx.lineJoin,
+            miterLimit = ctx.miterLimit, dashes = ctx.lineDash)
     end
-    strokeText(
-        var_image, font, text,
-        transform = ctx.mat * translate(var_at),
-        strokeWidth = ctx.lineWidth, hAlign = ctx.textAlign,
-        lineCap = ctx.lineCap, lineJoin = ctx.lineJoin,
-        miterLimit = ctx.miterLimit, dashes = ctx.lineDash)
-    if ctx.globalAlpha != Float32(1)
-        applyOpacity(ctx.layer, ctx.globalAlpha)
-        restore(ctx)
+    if ctx.globalAlpha == 1f0
+        paint!(image)
+    else
+        _withDrawingLayer(paint!, ctx, ctx.globalAlpha)
     end
     return nothing
 end
@@ -838,9 +860,9 @@ end
 `strokeText`)."""
 function strokeText(ctx::Context, text::String, at::Vec2)
     if ctx.mask !== nothing && ctx.layer === nothing
-        saveLayer(ctx)
-        _ctxStrokeTextImage(ctx, ctx.layer, text, at)
-        restore(ctx)
+        _withDrawingLayer(ctx) do layer
+            _ctxStrokeTextImage(ctx, layer, text, at)
+        end
     elseif ctx.layer !== nothing
         _ctxStrokeTextImage(ctx, ctx.layer, text, at)
     else

@@ -6,10 +6,10 @@
 # Pinned arithmetic notes:
 # - `image[x, y]` returns transparent for out-of-bounds (images.nim L37).
 # - `h = 0.5` is the half-pixel sampling offset (images.nim L5).
-# - `mix` is pixie common.nim's byte mix (already ported in Vetra.jl).
+# - `mix` is pixie common.nim's byte mix (already ported in Vellum.jl).
 # - `round` in minify/applyOpacity is the tie-away-from-zero chroma/Nim round
 #   (roundHalfAway here), and `*`(ColorRGBX, float32) is the opacity formula
-#   from Vetra.jl (`x = round(o * 255)`, `c = (c * x + 127) div 255`).
+#   from Vellum.jl (`x = round(o * 255)`, `c = (c * x + 127) div 255`).
 # - The `draw` smooth/blending decision, minify/magnify loops (including the
 #   transform rescale `transform * scale(2|1/2)`) and the drawSmooth
 #   scanline walk are ported exactly (integer trunc/ceil/floor casts; the
@@ -473,6 +473,7 @@ function draw(
     a::Image, b::Image, tform::Mat3 = mat3(); blendMode = NormalBlend
 )
     ImageTiles.validate_legacy_images(a,b,tform)
+    Base.mightalias(a.data,b.data) && (b = copy(b))
     inv = inverse(tform)
     p = inv * Vec2(DRAW_H, DRAW_H)
     dx = inv * Vec2(Float32(1) + DRAW_H, DRAW_H) - p
@@ -531,6 +532,7 @@ function drawTiled(
     dst::Image, src::Image, mat::Mat3 = mat3(); blendMode = NormalBlend
 )
     ImageTiles.validate_legacy_images(dst,src,mat)
+    Base.mightalias(dst.data,src.data) && (src = copy(src))
     inv = inverse(mat)
     p = inv * Vec2(DRAW_H, DRAW_H)
     dx = inv * Vec2(Float32(1) + DRAW_H, DRAW_H) - p

@@ -2,6 +2,7 @@
 module GLHost
 
 using Libdl
+import ..Vellum
 
 export Window, open_window, close!, with_window, proc_address, framebuffer_size,
        window_size, cursor_position, key_state, mouse_button_state, poll_events,
@@ -54,11 +55,10 @@ end
 
 """Find GLFW lazily; throw if no override or library is available."""
 function library_path()
-    override = get(ENV, "VETRA_GLFW_LIBRARY", "")
+    override = get(ENV, "VELLUM_GLFW_LIBRARY", "")
     isempty(override) || return override
-    path = Libdl.find_library(["glfw", "glfw3"])
-    isempty(path) && error("GLFW library not found; set VETRA_GLFW_LIBRARY")
-    path
+    glfw = Base.require(Base.PkgId(Base.UUID("0656b61e-2033-5cc2-a64a-77c0f6c09b89"), "GLFW_jll"))
+    return Base.invokelatest(glfw.get_libglfw_path)
 end
 
 """Return the version of an already loaded GLFW library."""
@@ -153,6 +153,19 @@ end
 function require_open(w::Window)
     w.closed && throw(ArgumentError("window is closed"))
     w.handle
+end
+
+"""Run offscreen drawing with GLFW's context detached and restore the calling thread's binding on return."""
+function without_context(f,w::Window)
+    require_open(w)
+    previous = ccall(symbol(w.library,:glfwGetCurrentContext),Ptr{Cvoid},())
+    bind = symbol(w.library,:glfwMakeContextCurrent)
+    ccall(bind,Cvoid,(Ptr{Cvoid},),C_NULL)
+    try
+        return f()
+    finally
+        ccall(bind,Cvoid,(Ptr{Cvoid},),previous)
+    end
 end
 
 """Close an owned window and terminate GLFW on its owning thread; idempotent."""
@@ -292,5 +305,8 @@ function backend(w::Window)
     value == GLFW_PLATFORM_X11 && return :x11
     :other
 end
+
+include("frame_window.jl")
+include("interactive_window.jl")
 
 end

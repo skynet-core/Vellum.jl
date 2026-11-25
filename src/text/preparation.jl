@@ -5,7 +5,7 @@ mutable struct _TextPreparation
     fonts::Set{Any}
 end
 _TextPreparation(budget::Int) = _TextPreparation(budget,0,Set{Any}())
-const _TEXT_PREPARATION_KEY = :vetra_text_preparation
+const _TEXT_PREPARATION_KEY = :vellum_text_preparation
 
 function _fontWork!(bytes::Integer)
     bytes >= 0 || throw(ArgumentError("Invalid font allocation count"))

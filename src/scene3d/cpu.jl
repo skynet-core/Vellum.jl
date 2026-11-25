@@ -14,7 +14,7 @@ struct SceneCPU <: Backend
     end
 end
 """Report the CPU scene profile, picking support and maximum output size."""
-Vetra.capabilities(::SceneCPU) = Capabilities(features=(Symbol("scene3d.opaque_triangles"),Symbol("scene3d.pick_id")),
+Vellum.capabilities(::SceneCPU) = Capabilities(features=(Symbol("scene3d.opaque_triangles"),Symbol("scene3d.pick_id")),
     profiles=(:scene3d_cpu,),max_image_size=(MAX_EDGE,MAX_EDGE))
 
 """Resolved camera, mesh and material references for one bounded submission."""
@@ -78,7 +78,7 @@ end
 Allocate a reusable target for a positive integral `(width, height)` with
 each edge at most 384 pixels. Invalid dimensions raise `ModelError`.
 """
-function Vetra.make_surface(::SceneCPU,size)
+function Vellum.make_surface(::SceneCPU,size)
     length(size)==2 && all(i -> i isa Integer && 1<=i<=MAX_EDGE,size) || limit("scene target dimensions exceed limits")
     width,height = Int.(size)
     return Target((width,height),ReentrantLock(),Planes(width*height),Planes(width*height),
@@ -88,6 +88,7 @@ end
 """Submission token for a generation of a CPU target, with completion state and timings."""
 mutable struct Ticket <: Submission
     target::Target
+    camera::Camera
     generation::UInt64
     revision::UInt64
     state::Symbol
@@ -102,7 +103,7 @@ Pin the resolved immutable scene in the target’s single pending slot. Call
 `wait` to render and publish it. Resource validation, exceeded budgets,
 closed targets and an occupied slot raise `ModelError`.
 """
-function Vetra.submit!(backend::SceneCPU,target::Target,scene::Scene)
+function Vellum.submit!(backend::SceneCPU,target::Target,scene::Scene)
     started = time_ns()
     plan = prepare_plan(backend,scene)
     return lock(target.guard) do
@@ -110,7 +111,7 @@ function Vetra.submit!(backend::SceneCPU,target::Target,scene::Scene)
         target.pending===nothing || stale("scene target already reserved")
         target.sequence<typemax(UInt64) || limit("scene generation exhausted")
         target.sequence += 1
-        work = Ticket(target,target.sequence,plan.source_revision,:pending,time_ns()-started,0,0)
+        work = Ticket(target,plan.camera,target.sequence,plan.source_revision,:pending,time_ns()-started,0,0)
         target.pending = plan
         work
     end
@@ -266,11 +267,11 @@ function Base.wait(ticket::Ticket)
 end
 
 """Return whether a CPU scene ticket successfully completed."""
-Vetra.completed(ticket::Ticket) = lock(ticket.target.guard) do
+Vellum.completed(ticket::Ticket) = lock(ticket.target.guard) do
     ticket.state===:completed
 end
 """Release a pending scene reservation. Completed or already cancelled tickets are unchanged."""
-function Vetra.cancel!(ticket::Ticket)
+function Vellum.cancel!(ticket::Ticket)
     target = ticket.target
     return lock(target.guard) do
         if ticket.state===:pending
@@ -328,6 +329,35 @@ function detached_image(ticket::Ticket)
         result = published(ticket)
         ImageData(Image(ticket.target.size...,result.rgba))
     end
+end
+
+"""
+    shade_image(shader, ticket) -> Image
+
+Shade the visible surface of a completed CPU scene. For each covered pixel,
+call `shader(world_position, object_id)` at the pixel center and use its
+premultiplied `ColorRGBX` result. Background pixels are transparent. The
+returned image owns its pixels and can be placed in any Vellum frame.
+A closed, pending or superseded submission raises `ModelError`.
+"""
+function shade_image(shader,ticket::Ticket)
+    camera = ticket.camera
+    width,height = ticket.target.size
+    ids,depth = lock(ticket.target.guard) do
+        planes = published(ticket)
+        copy(planes.ids),copy(planes.depth)
+    end
+    image = Image(width,height)
+    for y in 0:height-1, x in 0:width-1
+        index = y*width+x+1
+        iszero(ids[index]) && continue
+        dx = (2(x+0.5)/width-1)*camera.half_height*width/height
+        dy = (1-2(y+0.5)/height)*camera.half_height
+        ray = camera.forward .+ dx .* camera.right .+ dy .* camera.up
+        world = camera.eye .+ (1/depth[index]) .* ray
+        image[index] = shader(world,ids[index])
+    end
+    return image
 end
 
 """

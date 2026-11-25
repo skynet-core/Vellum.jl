@@ -3,16 +3,15 @@
 # for the legacy camelCase names, and `!` for mutating operations.
 # Every alias is a `const` binding to the existing generic function — no
 # method is duplicated, so dispatch, inference, allocation, and behavior
-# are unchanged, and the legacy names remain callable. docs/MIGRATION.md
-# has the full table.
+# are unchanged, and the legacy names remain callable.
 #
-# Naming rules (bounded contract, tasks/MODERNIZATION.md):
+# Naming conventions
 # - a `!` name covers exactly the mutating generics; a generic that mixes
 #   mutating and allocating methods gets a typed adapter (ceil!, rect!,
 #   translate!, scale!, rotate!, transform!, circle!) instead of a const
 #   alias, so no `!` name advertises a pure or allocating overload;
 # - `fill!` and `rotate!` are defined on the Base / LinearAlgebra generics
-#   (identical bindings) so `using Vetra` cannot make them ambiguous for
+#   (identical bindings) so `using Vellum` cannot make them ambiguous for
 #   stdlib users; `ceil!` is a separate Image-only generic;
 # - allocating/pure entry points get snake_case names without `!`.
 
@@ -121,7 +120,7 @@ function scale!(rctx::RecordingContext, x::Real, y::Real)
     return scale(rctx, x, y)
 end
 
-# rotate! extends LinearAlgebra.rotate! (identical binding, so `using Vetra`
+# rotate! extends LinearAlgebra.rotate! (identical binding, so `using Vellum`
 # together with `using LinearAlgebra` stays unambiguous); the geometry
 # constructor rotate(angle) stays un-banged.
 LinearAlgebra.rotate!(ctx::Context, angle::Real) = rotate(ctx, angle)
@@ -316,14 +315,14 @@ const default_miter_limit = defaultMiterLimit
 const snap_to_pixels = snapToPixels
 const srgb = sRBG
 
-# Optional C adapter; loading Vetra does not load the native library or OpenCV.
+# Optional C adapter; loading Vellum does not load the native library or OpenCV.
 module NativeInterop
 using Libdl
 
 export NativeLibrary, NativeError, with_native, invert!, rgb_to_bgr, opencv_gray,
        submit_invert!, cancel!, NativeJob, descriptor, opencv_version
 
-import ..Vetra
+import ..Vellum
 
 """
     storage() -> Module
@@ -332,7 +331,7 @@ Return the parent package's storage module after package initialization,
 using the Julia module binding directly. Calling this function before
 `ImageStorage` is defined raises `UndefVarError`.
 """
-storage() = Vetra.ImageStorage
+storage() = Vellum.ImageStorage
 
 struct NativeError <: Exception
     operation::Symbol
@@ -350,7 +349,7 @@ struct NativeLibrary
             version = ccall(Libdl.dlsym(handle,:vtr_abi_version), UInt32, ())
             size = ccall(Libdl.dlsym(handle,:vtr_descriptor_size), UInt32, ())
             version == 1 && size == sizeof(CPixels) ||
-                throw(ArgumentError("incompatible Vetra native ABI"))
+                throw(ArgumentError("incompatible Vellum native ABI"))
             new(handle)
         catch
             Libdl.dlclose(handle)

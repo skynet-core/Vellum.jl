@@ -141,11 +141,8 @@ function readImageDimensions(path::String)
 end
 
 """
-Encode an image to bytes (upstream `encodeImage`). PNG, BMP, QOI and PPM
-are implemented natively; JpegFormat via the opt-in `JpegTurbo` package
-(T031, D032) and WebpFormat via the opt-in `WebP` package (T032, D032);
-GifFormat raises `ArgumentError("Unsupported file format")`, as upstream
-does for GIF.
+Encode an image as PNG, BMP, QOI, PPM or JPEG. GIF and WebP encoding
+raise an ArgumentError.
 """
 function encodeImage(image::Image, format::FileFormat)
     if format === PngFormat
@@ -236,26 +233,7 @@ function _base64Validate(s::String)
 end
 
 """RFC-4648 base64 encode, no line breaks (Nim std/base64 style)."""
-function _base64Encode(data::Vector{UInt8})
-    ch(v, shift) = string(_B64_ALPHABET[1 + ((v >> shift) & 0x3f)])
-    out = String[]
-    n = length(data)
-    i = 1
-    while i + 2 <= n
-        v = (Int(data[i]) << 16) | (Int(data[i + 1]) << 8) | Int(data[i + 2])
-        push!(out, ch(v, 18), ch(v, 12), ch(v, 6), ch(v, 0))
-        i += 3
-    end
-    r = n - i + 1
-    if r == 1
-        v = Int(data[i]) << 16
-        push!(out, ch(v, 18), ch(v, 12), "==")
-    elseif r == 2
-        v = (Int(data[i]) << 16) | (Int(data[i + 1]) << 8)
-        push!(out, ch(v, 18), ch(v, 12), ch(v, 6), "=")
-    end
-    return join(out)
-end
+_base64Encode(data::Vector{UInt8}) = base64encode(data)
 
 """Strict RFC-4648 base64 decode; input must pass `_base64Validate`."""
 function _base64Decode(s::String)

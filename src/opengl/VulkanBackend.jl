@@ -1,8 +1,8 @@
 """
 Render bounded portable vector, dense image, captured-text and blur frames with Vulkan on Linux.
 Completed images can also be presented to an application-owned Wayland window.
-Importing this module loads no graphics driver. Pass the Vulkan bridge built
-from `native/vulkan` and explicit PCI IDs when constructing a backend.
+Importing this module loads no graphics driver. DesktopBackend() uses the display’s Vulkan-enabled GTK runtime. For the extended profiles, pass the Vulkan
+bridge library and explicit PCI IDs when constructing a backend.
 """
 module VulkanBackend
 
@@ -10,8 +10,8 @@ import Libdl
 import ..OpenGLBackend
 import ..OpenGLBackend: Preparation, request_frame!, preparation_status, preparation_statistics
 import ..OpenGLBackend: page_cache_statistics, target_extent, box_blur_radius
-import ..Vetra
-import ..Vetra: present!
+import ..Vellum
+import ..Vellum: present!
 
 """
     Backend(library, vendor, product; raster_registry=nothing, source_pool=:standard)
@@ -65,15 +65,15 @@ end
     window_surface(frame, backend, window; size=frame.size) -> Surface
 
 Render an initial `Frame` into a resident image bound to a borrowed
-`WaylandWindow`. `size` is the Vetra raster extent, bounded by [`target_extent`](@ref).
+`WaylandWindow`. `size` is the Vellum raster extent, bounded by [`target_extent`](@ref).
 Call [`present!`](@ref) separately with the host framebuffer extent.
 Invalid plans or ownership throw, as do unsupported Wayland/Vulkan devices
 or initial render failures. One target can borrow a given window at a time.
 Close the result before destroying the window.
 """
-function window_surface(frame::Vetra.Frame, backend::Backend, window::WaylandWindow; size=frame.size)
-    surface = Vetra.make_surface(backend, size)
-    plan = Vetra.prepare(backend, frame)
+function window_surface(frame::Vellum.Frame, backend::Backend, window::WaylandWindow; size=frame.size)
+    surface = Vellum.make_surface(backend, size)
+    plan = Vellum.prepare(backend, frame)
     try
         OpenGLBackend.require_plan(backend, surface, plan)
         return OpenGLBackend.initialize!(surface,backend,plan;window=(window.display,window.surface))
@@ -134,7 +134,7 @@ function window_statistics(surface::Surface)
 end
 
 """
-    readback(surface) -> Vetra.Image
+    readback(surface) -> Vellum.Image
 
 Copy completed premultiplied RGBA8 pixels into a detached image. Pending,
 closed or failed surfaces raise an error. This operation waits for its own
@@ -200,5 +200,7 @@ function statistics(surface::Surface)
     return (; stats..., allocated_bytes=extra[1], gpu_ns=extra[2], submit_ns=extra[3],
         copy_bytes=extra[4])
 end
+
+include("vulkan_desktop.jl")
 
 end

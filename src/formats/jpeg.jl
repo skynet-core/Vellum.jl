@@ -1,6 +1,6 @@
 # ---------- JPEG (T008) ----------
 # Upstream: pixie/fileformats/jpeg.nim (stb-derived decoder, reference-only
-# per D008). Pixel decoding is the opt-in `JpegTurbo` package (libjpeg-turbo);
+# per D008). Pixel decoding is the `JpegTurbo` package (libjpeg-turbo);
 # this file ports natively what upstream exposes around it:
 # - jpegStartOfImage (L45): the 0xFFD8 marker check;
 # - decodeJpegDimensions (L675-706): marker scan, SOF0/SOF2, the
@@ -19,19 +19,8 @@ const JPEG_START_OF_IMAGE = (0xff, 0xd8)
 const _JPEGTURBO_PKGID = Base.PkgId(
     Base.UUID("b835a17e-a41a-41e7-81f0-2f016b05efe0"), "JpegTurbo")
 
-"""
-The `JpegTurbo` module loaded by Vetra.__init__, or a clear install hint
-(D014). Environments without JpegTurbo load normally and get this error
-only on use.
-"""
-function _requireJpegTurbo()
-    if Base.locate_package(_JPEGTURBO_PKGID) === nothing
-        throw(ErrorException(
-            "JPEG support is opt-in: add the JpegTurbo package to your " *
-            "environment (Pkg.add(\"JpegTurbo\")) and retry"))
-    end
-    return Base.require(_JPEGTURBO_PKGID)
-end
+"""Load the packaged JpegTurbo dependency on first use."""
+_requireJpegTurbo() = Base.require(_JPEGTURBO_PKGID)
 
 """
 Decode JPEG bytes into an `Image` (upstream `decodeJpeg`): 8-bit RGB in,
@@ -307,7 +296,7 @@ function decodeJPEGDimensions(data::Vector{UInt8})
     end
 end
 
-# ---- encode (T031, D032, docs/JPEG_WEBP_CODECS.md §2) ----
+# ---- encode (baseline JFIF) ----
 
 """libjpeg-turbo's MAX_JPEG_DIMENSION: the provider segfaults in
 `jinit_compress_master` at 65501 (C-level, uncatchable — bisected in the
@@ -347,8 +336,8 @@ function _encodeJPEGMatrix!(out::Matrix{C}, d::Vector{UInt8}, w::Int, h::Int,
 end
 
 """
-Encode an `Image` as JPEG bytes (T031, D032 — docs/JPEG_WEBP_CODECS.md
-§2). Straight RGB is composited over `background` (default white — the
+Encode an `Image` as JPEG bytes.
+Straight RGB is composited over `background` (default white — the
 contract's transparency policy; alpha is never silently dropped).
 Output is baseline JFIF with the contract-mandated 72×72 dpi density
 (§2.3), no EXIF/Adobe; `quality` is 1..100 (default 92, the provider

@@ -1,4 +1,4 @@
-# ---------- PDF write (T026; contract: docs/RECORDING.md §6.2, D030) ----------
+# ---------- PDF export ----------
 #
 # No upstream writer: pixie has no PDF writer; ISO 32000-1:2008 (PDF 1.4)
 # is the export reference. Single page; content units are picture units
@@ -11,7 +11,7 @@
 # on `cm` exactly as in the SVG writer; the PDF cm convention
 # x' = ax + cy + e, y' = bx + dy + f matches the SVG matrix() mapping).
 #
-# Mapping (derived in T026, pinned by test/pdf_export_tests.jl):
+# Mapping from recorded operations to PDF operators
 # - Paths -> m/l/c/h (quadratics -> exact cubic, PDF has no `q`); S/T
 #   reflection tracked as in the raster; elliptical
 #   arcs flatten to <=90-degree cubic segments via the pinned
@@ -104,7 +104,7 @@ function _pdfExpanded(s)
     return sign * "0." * "0"^(-p - n) * digits
 end
 
-"""The six PDF `cm` numbers for a Vetra `Mat3` (same mapping as the SVG
+"""The six PDF `cm` numbers for a Vellum `Mat3` (same mapping as the SVG
 `matrix(a b c d e f)`)."""
 function _pdfCm(m::Mat3)
     return _pdfNum(m[1, 1]) * " " * _pdfNum(m[1, 2]) * " " *
@@ -575,7 +575,7 @@ end
 
 # ---------- shading ----------
 
-"""A stop as the Type-2 function color [r g b] (straight, 0..1). Stops must
+"""A stop as the Type-2 function color `[r g b]` (straight, 0..1). Stops must
 be fully opaque in v1 (see `_pdfStopsCheck` — a 4th alpha component in a
 shading function is not portably honored by the pinned renderers)."""
 function _pdfStopColor(s)
@@ -906,7 +906,7 @@ function writePdf(file::String, picture::Picture; dpi::Float32 =
                     # The raster samples t in canvas space (untransformed
                     # handles); the element-space Coords are the repelled
                     # handles (exact for every invertible T — derivation in
-                    # the file header and tasks/T026-pdf-export.md).
+                    # the file header).
                     st = _PdfPathState(top)
                     _pdfPath(op.path, st)
                     print(top, "W n\n")

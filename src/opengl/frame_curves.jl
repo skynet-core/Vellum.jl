@@ -1,15 +1,12 @@
 """Pack portable paths and drawing state for the offscreen OpenGL shader."""
 module FrameCurves
 
-import ...Vetra
-using ...Vetra: Solid, rectangle_path
+import ...Vellum as V
+import ...Vellum: PortableGeometry as G
+using ...Vellum: Solid, rectangle_path
 using ..RasterAssets: RasterAssets
 using ..RasterPages: RasterPages
 
-"""Alias for the portable types used by the packer."""
-const V = Vetra
-"""Geometry lowerer shared with the CPU backend."""
-const G = V.PortableGeometry
 """Word count in the packed frame header."""
 const HEADER = 10
 """Words per command record."""

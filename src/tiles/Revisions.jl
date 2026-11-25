@@ -30,7 +30,7 @@ end
 Own one packed premultiplied sRGB RGBA8 tile. Validate its shape and color
 channels once, sharing `FrozenBytes` or copying a byte vector. Subsequent
 revisions can share the same tile and its process-local identity. Invalid
-dimensions or premultiplication raise a Vetra model error.
+dimensions or premultiplication raise a Vellum model error.
 """
 struct RgbaTile
     pixels::V.FrozenBytes
@@ -96,7 +96,7 @@ Own a sparse index of zero-based tile coordinates. Values are `RgbaTile`,
 `FrozenBytes`, or packed premultiplied RGBA8 vectors. Missing tiles are
 transparent. `share_pages` permits native adapters with the same tile grid
 to omit absent tiles and reuse the identities of shared tiles across exact
-revisions. Invalid input, duplicate tiles, and exceeded budgets raise Vetra
+revisions. Invalid input, duplicate tiles, and exceeded budgets raise Vellum
 model errors. Borrowing pixels still requires an explicit read lease.
 """
 mutable struct OwnedTileRevision <: AbstractRasterRevision

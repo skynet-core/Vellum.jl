@@ -112,7 +112,7 @@ end
 """
 `v / length(v)` (vmath `normalize`). Zero vector yields NaN components,
 no guard -- mirrors upstream. `dot` and `normalize` extend the actual
-LinearAlgebra generics (imported in Vetra.jl), so `using Vetra,
+LinearAlgebra generics (imported in Vellum.jl), so `using Vellum,
 LinearAlgebra` resolves both to the identical binding.
 """
 normalize(v::Vec2) = v / length(v)

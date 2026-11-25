@@ -1,8 +1,8 @@
 """Lower captured glyphs to private outline fills for the native GPU adapters."""
 module GLText
 
-import ...Vetra
-using ...Vetra: Frame, TextRun, SemanticNode, FillPath, StrokePath, ClearRegion, CompositeGroup, ImageRegion
+import ...Vellum
+using ...Vellum: Frame, TextRun, SemanticNode, FillPath, StrokePath, ClearRegion, CompositeGroup, ImageRegion
 using ..FrameCurves: MAX_COMMANDS
 
 """Per-run limit on outline commands before the donor's separate geometry limits."""
@@ -33,7 +33,7 @@ preserving their node IDs, revisions and drawing state. Drop neutral
 single-run text groups and retain all other groups and their effects.
 Track the native command budget in `slots` and the remaining group depth.
 Throw `ArgumentError` for unsupported operations or exhausted limits.
-Invalid font references, glyph IDs and outline geometry are rejected by Vetra.
+Invalid font references, glyph IDs and outline geometry are rejected by Vellum.
 """
 function outline_nodes(nodes, source::Frame, slots, depth)
     length(nodes) <= slots[] || throw(ArgumentError("command budget exceeded"))
@@ -46,7 +46,7 @@ function outline_nodes(nodes, source::Frame, slots, depth)
         if op isa TextRun
             0 < length(op.glyphs) <= 32 || throw(ArgumentError("expected 1–32 captured glyphs"))
             isempty(op.fallback_fonts) || throw(ArgumentError("use separate captured face runs"))
-            path = Vetra._portable_text_path(op, source, node.id; max_commands=OUTLINE_COMMANDS)
+            path = Vellum._portable_text_path(op, source, node.id; max_commands=OUTLINE_COMMANDS)
             SemanticNode(node.id, node.revision, FillPath(path, op.state, :nonzero))
         elseif op isa CompositeGroup
             depth < 2 || throw(ArgumentError("unsupported group depth"))

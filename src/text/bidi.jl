@@ -13,9 +13,8 @@ const _BIDI_GUARD = ReentrantLock()
 function _bidiProvider()
     lock(_BIDI_GUARD) do
         _BIDI_PROVIDER[] === nothing || return _BIDI_PROVIDER[]
-        path = get(ENV,"VETRA_FRIBIDI_LIBRARY","")
-        isempty(path) && (path = Libdl.find_library(["libfribidi","libfribidi.so.0","libfribidi-0"]))
-        isempty(path) && throw(ErrorException("Paragraph bidi requires the optional FriBidi library"))
+        path = get(ENV,"VELLUM_FRIBIDI_LIBRARY","")
+        isempty(path) && (path = FriBidi_jll.libfribidi)
         handle = Libdl.dlopen(path,Libdl.RTLD_NOW)
         success = false
         try

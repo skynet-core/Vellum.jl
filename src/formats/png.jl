@@ -1,6 +1,6 @@
 # ---------- PNG (T008) ----------
 # Upstream reference: pixie/fileformats/png.nim (zippy-based, reference-only
-# per D008). The codec itself is the opt-in `PNGFiles` package (libpng);
+# per D008). The codec itself is the `PNGFiles` package (libpng);
 # this file pins the boundary conversions upstream applies:
 # - decode: PNG straight RGBA -> `toPremultipliedAlpha` (our `rgbx`) into
 #   the stored premultiplied image (upstream `newImage(Png)` L584-593);
@@ -20,27 +20,12 @@
 #   spec; upstream's own decoder (png.nim L641-756) produces identical
 #   pixels for valid files.
 #
-# PNG support is opt-in (D014): `PNGFiles` is loaded by Vetra.__init__
-# when available in the active environment; a missing package makes the PNG
-# entry points raise `ErrorException` with the install hint on use.
 
 const _PNGFILES_PKGID = Base.PkgId(
     Base.UUID("f57f5aa1-a3ce-4bc8-8ab9-96f992907883"), "PNGFiles")
 
-"""
-The `PNGFiles` module, loaded on first use (lazy discovery, D028), or a
-clear install hint (D014). Environments without PNGFiles load normally and
-get this error only on use; loading cost is paid once, only by users who
-actually encode/decode PNG.
-"""
-function _requirePngFiles()
-    if Base.locate_package(_PNGFILES_PKGID) === nothing
-        throw(ErrorException(
-            "PNG support is opt-in: add the PNGFiles package to your " *
-            "environment (Pkg.add(\"PNGFiles\")) and retry"))
-    end
-    return Base.require(_PNGFILES_PKGID)
-end
+"""Load the packaged PNGFiles dependency on first use."""
+_requirePngFiles() = Base.require(_PNGFILES_PKGID)
 
 """Resolve and invoke the lazy codec reader in the latest Julia world."""
 function _pngLoad(data::Vector{UInt8})
@@ -182,7 +167,7 @@ Concise REPL/notebook text display for `Image` (the default struct display
 would dump the whole pixel buffer).
 """
 function Base.show(io::IO, ::MIME"text/plain", image::Image)
-    println(io, "Vetra image: ", image.width, "x", image.height,
+    println(io, "Vellum image: ", image.width, "x", image.height,
         " premultiplied RGBA")
     return nothing
 end
@@ -191,7 +176,7 @@ Base.showable(::MIME"text/plain", ::Image) = true
 
 """
 PNG display (IJulia/Pluto rich output): encodes through `encodePNG`
-(opt-in PNGFiles, D014). `showable` reports availability so frontends
+(PNGFiles). `showable` reports availability so frontends
 fall back to the text display in core-only environments instead of
 showing an error.
 """

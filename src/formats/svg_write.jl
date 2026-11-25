@@ -1,11 +1,11 @@
-# ---------- SVG write (T025; contract: docs/RECORDING.md §6.1, D030) ----------
+# ---------- SVG export ----------
 #
 # No upstream writer: pixie reads SVG (src/formats/svg.jl, pinned) but does
 # not write it; W3C SVG 1.1 is the export reference. The output is a
 # standalone document (explicit size + viewBox = the logical canvas), all
 # elements in op order, stable sequential identifiers (gnN / cpN / imN).
 #
-# Mapping (derived in T025, pinned by test/svg_export_tests.jl):
+# Mapping from recorded operations to SVG elements
 # - FillOp/StrokeOp -> `<path d ... transform="matrix(T)">` with the
 #   recorded op tform T (path data stays in picture space; the raster
 #   applies T to the built geometry/stroke, so the element transform
@@ -55,8 +55,8 @@ function _n(v::Float32)
     return string(v)
 end
 
-"""The SVG `matrix(a b c d e f)` string for a Vetra `Mat3`
-(x' = a*x + c*y + e, y' = b*x + d*y + f; Vetra `m[i, j]` = column i, row j)."""
+"""The SVG `matrix(a b c d e f)` string for a Vellum `Mat3`
+(x' = a*x + c*y + e, y' = b*x + d*y + f; Vellum `m[i, j]` = column i, row j)."""
 function _svgMatrix(m::Mat3)
     return "matrix(" * _n(m[1, 1]) * " " * _n(m[1, 2]) * " " *
         _n(m[2, 1]) * " " * _n(m[2, 2]) * " " *
@@ -230,7 +230,6 @@ function _svgClipTransformsCheck(picture::Picture)
 end
 
 function _svgPreScan(picture::Picture)
-    needPng = false
     for (i, op) in enumerate(picture.ops)
         if op isa ClearOp
             throw(ArgumentError(
@@ -275,7 +274,6 @@ function _svgPreScan(picture::Picture)
                     "SVG-exportable (v1)"))
             end
         elseif op isa Union{DrawImageOp,DocumentImageOp}
-            needPng = true
             _svgFiniteMat(op.imageMat, i, "DrawImageOp")
         elseif op isa GroupStart
             isfinite(op.opacity) || throw(ArgumentError(
@@ -285,11 +283,6 @@ function _svgPreScan(picture::Picture)
                 _svgFinitePath(c.path, i, "GroupEnd")
             end
         end
-    end
-    if needPng && Base.locate_package(_PNGFILES_PKGID) === nothing
-        throw(ErrorException(
-            "PNG support is opt-in: add the PNGFiles package to your " *
-            "environment (Pkg.add(\"PNGFiles\")) and retry"))
     end
     return nothing
 end
@@ -358,8 +351,7 @@ the document text. Strict by default: the first unexportable op (clearRect,
 angular / ImagePaint fills, non-Normal blends, degenerate or out-of-range
 gradient stops, non-finite geometry) raises `ArgumentError` naming the op
 index, and no file is written. `rasterFallback = true` renders the whole
-picture into a single embedded `<image>` (identifiable by its data-URI; the
-PNGFiles opt-in, D014) instead of vector content.
+picture into a single embedded PNG image with a data URI.
 Non-solid recorded strokes reject in both modes before any raster/provider or
 destination work (ADR-006 interim containment); CPU replay is unaffected.
 """
@@ -374,7 +366,7 @@ function writeSvg(file::String, picture::Picture; rasterFallback::Bool = false)
         b64 = _base64Encode(encodePNG(img))
         buf = IOBuffer()
         _svgHeader(buf, W, H)
-        println(buf, "<!-- Vetra rasterFallback: whole-picture raster (D030) -->")
+        println(buf, "<!-- Vellum rasterFallback: whole-picture raster (D030) -->")
         println(buf, "<image x=\"0\" y=\"0\" width=\"$W\" height=\"$H\" " *
             "href=\"data:image/png;base64,$b64\"/>")
         println(buf, "</svg>")

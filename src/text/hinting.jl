@@ -4,11 +4,12 @@ This example uses the LP64 provider ABI.
 """
 module GridFitting
 
-import ..Vetra
+import ..Vellum
 using StaticArrays: SVector
+using FreeType2_jll: libfreetype
 
-"""System FreeType soname loaded by the first admitted text run."""
-const FT = "libfreetype.so.6"
+"""Packaged FreeType library loaded by the first admitted text run."""
+const FT = libfreetype
 """Maximum visited semantic nodes per preparation, including group children."""
 const MAX_NODES = 4096
 """Maximum number of glyph occurrences per preparation."""
@@ -41,7 +42,7 @@ const MAX_CACHED_GLYPHS = 4096
 const MAX_CACHED_COMMANDS = 65536
 """Serialize native misses across sessions while their FreeType faces are open."""
 const NATIVE_LOCK = ReentrantLock()
-"""Vetra path symbols in the order of the private packed command tags."""
+"""Vellum path symbols in the order of the private packed command tags."""
 const PATH_TAGS = (:move, :line, :quad, :cubic, :close)
 """Packed command tag for the first point of a contour."""
 const MOVE = UInt8(1)
@@ -71,12 +72,12 @@ function Command(tag::UInt8, coordinates::NTuple{N,Float64}) where {N}
 end
 
 """Scoped font, horizontal and vertical 26.6 sizes, and the glyph ID."""
-const GlyphKey = Tuple{Vetra.ResourceRef,Clong,Clong,UInt32}
+const GlyphKey = Tuple{Vellum.ResourceRef,Clong,Clong,UInt32}
 
 """Private outlines and source bytes retained between fitting calls."""
 mutable struct OutlineCache
     """Rooted immutable font bytes indexed by their scoped resource reference."""
-    fonts::Dict{Vetra.ResourceRef,String}
+    fonts::Dict{Vellum.ResourceRef,String}
     """Owned vectors of commands in physical pixels."""
     glyphs::Dict{GlyphKey,Vector{Command}}
     """Total bytes in retained font strings."""
@@ -94,8 +95,8 @@ OutlineCache() = OutlineCache(Dict(), Dict(), 0, 0)
 Create a reusable session for fitting captured outline text to physical pixels.
 `mode` is `:normal`, `:light`, or `:unhinted`. Invalid modes raise
 `ArgumentError`. On Linux x86-64, pass the session as `hinting` to
-[`Vetra.rasterize`](@ref), [`Vetra.savepng`](@ref), or
-[`Vetra.hinted_frame`](@ref). System FreeType loads on the first outline miss.
+[`Vellum.rasterize`](@ref), [`Vellum.savepng`](@ref), or
+[`Vellum.hinted_frame`](@ref). Packaged FreeType loads on the first outline miss.
 
 The session serializes calls and caches only owned Julia outlines and
 immutable source font bytes. The cache resets on conflicting font bytes
@@ -329,9 +330,9 @@ mutable struct Preparation
     """Private native library handle, created on the first text run."""
     library::Ptr{Cvoid}
     """Native faces backed by bytes in `fonts` until the call ends."""
-    faces::Dict{Vetra.ResourceRef,Ptr{Cvoid}}
+    faces::Dict{Vellum.ResourceRef,Ptr{Cvoid}}
     """Exact font bytes resolved and admitted from this call's source frame."""
-    fonts::Dict{Vetra.ResourceRef,String}
+    fonts::Dict{Vellum.ResourceRef,String}
     """Borrowed Julia-only cache, locked by the session."""
     cache::OutlineCache
     """Total input font bytes admitted during this preparation."""
@@ -349,14 +350,14 @@ mutable struct Preparation
 end
 
 """Resolve and admit the exact font bytes from this frame, even on cache hits."""
-function font_bytes!(p::Preparation, frame::Vetra.Frame, ref)
-    ref isa Vetra.ResourceRef && ref.canvas == frame.canvas && ref.kind === :font &&
+function font_bytes!(p::Preparation, frame::Vellum.Frame, ref)
+    ref isa Vellum.ResourceRef && ref.canvas == frame.canvas && ref.kind === :font &&
         ref.id > 0 && ref.revision > 0 || throw(ArgumentError("invalid scoped font reference"))
     bytes = get(p.fonts, ref, nothing)
     bytes === nothing || return bytes
     length(p.fonts) < MAX_FONTS || throw(ArgumentError("font count exceeded"))
-    data = Vetra.resolve_resource(frame.resources,ref)
-    data isa Vetra.FontData || throw(ArgumentError("not a font resource"))
+    data = Vellum.resolve_resource(frame.resources,ref)
+    data isa Vellum.FontData || throw(ArgumentError("not a font resource"))
     n = length(data.data)
     0 < n <= 16*1024*1024 && p.bytes+n <= MAX_BYTES || throw(ArgumentError("font byte budget exceeded"))
     p.fonts[ref] = data.data.bytes
@@ -374,7 +375,7 @@ function reset!(cache::OutlineCache)
 end
 
 """Bind a reference to identical bytes before searching or adding a cached glyph."""
-function cache_font!(cache::OutlineCache, ref::Vetra.ResourceRef, bytes::String)
+function cache_font!(cache::OutlineCache, ref::Vellum.ResourceRef, bytes::String)
     previous = get(cache.fonts, ref, nothing)
     previous === bytes && return nothing
     n = ncodeunits(bytes)
@@ -387,7 +388,7 @@ function cache_font!(cache::OutlineCache, ref::Vetra.ResourceRef, bytes::String)
 end
 
 """Open a scalable memory face lazily, with this call's exact rooted bytes."""
-function face!(p::Preparation, ref::Vetra.ResourceRef, bytes::String)
+function face!(p::Preparation, ref::Vellum.ResourceRef, bytes::String)
     ptr = get(p.faces, ref, C_NULL)
     ptr != C_NULL && return ptr
     if p.library == C_NULL
@@ -419,7 +420,7 @@ function face!(p::Preparation, ref::Vetra.ResourceRef, bytes::String)
 end
 
 """Get an owned outline for validated bytes and actual rounded physical sizes."""
-function outline!(p::Preparation, ref::Vetra.ResourceRef, bytes::String, sx, sy, gid)
+function outline!(p::Preparation, ref::Vellum.ResourceRef, bytes::String, sx, sy, gid)
     cache = p.cache
     cache_font!(cache, ref, bytes)
     key = (ref,Clong(sx),Clong(sy),UInt32(gid))
@@ -467,7 +468,7 @@ function outline!(p::Preparation, ref::Vetra.ResourceRef, bytes::String, sx, sy,
 end
 
 """Convert a captured run into one compound nonzero fill with its original state."""
-function lower(p::Preparation, frame::Vetra.Frame, run::Vetra.TextRun, scale)
+function lower(p::Preparation, frame::Vellum.Frame, run::Vellum.TextRun, scale)
     isempty(run.glyphs) && throw(ArgumentError("deferred text is unsupported"))
     isempty(run.fallback_fonts) || throw(ArgumentError("expected a single captured face"))
     isvalid(run.text) && ncodeunits(run.text) <= MAX_GLYPHS &&
@@ -503,23 +504,23 @@ function lower(p::Preparation, frame::Vetra.Frame, run::Vetra.TextRun, scale)
             push!(commands,(PATH_TAGS[cmd.tag],coords...))
         end
     end
-    Vetra.FillPath(Vetra.PathData(commands),s,:nonzero)
+    Vellum.FillPath(Vellum.PathData(commands),s,:nonzero)
 end
 
 """Recursively preserve all group and node identities while replacing text."""
-function nodes(p::Preparation, frame::Vetra.Frame, list, scale, depth=0)
+function nodes(p::Preparation, frame::Vellum.Frame, list, scale, depth=0)
     depth <= 64 || throw(ArgumentError("group depth exceeded"))
     length(list) <= MAX_NODES-p.nodes || throw(ArgumentError("node budget exceeded"))
     Tuple(map(collect(list)) do node
         p.nodes += 1
         p.nodes <= MAX_NODES || throw(ArgumentError("node budget exceeded"))
         op = node.operation
-        if op isa Vetra.CompositeGroup
-            op = Vetra.CompositeGroup(nodes(p,frame,op.nodes,scale,depth+1),op.opacity,op.blend,op.effect)
-        elseif op isa Vetra.TextRun
+        if op isa Vellum.CompositeGroup
+            op = Vellum.CompositeGroup(nodes(p,frame,op.nodes,scale,depth+1),op.opacity,op.blend,op.effect)
+        elseif op isa Vellum.TextRun
             op = lower(p,frame,op,scale)
         end
-        Vetra.SemanticNode(node.id,node.revision,op)
+        Vellum.SemanticNode(node.id,node.revision,op)
     end)
 end
 
@@ -542,7 +543,7 @@ throw an error. The source retains its semantic text. The adapter roots
 font bytes through `FT_Done_Face` and closes native handles on success
 and error. The first admitted text run opens the library.
 """
-function hinted_frame(frame::Vetra.Frame; size=frame.size, hinting::TextHinting=TextHinting())
+function hinted_frame(frame::Vellum.Frame; size=frame.size, hinting::TextHinting=TextHinting())
     Sys.islinux() && Sys.ARCH === :x86_64 || throw(ArgumentError("requires Linux x86-64"))
     size isa Tuple && length(size) == 2 && all(x -> x isa Real && isfinite(x) &&
         isinteger(x) && 0 < x <= 1_000_000,size) || throw(ArgumentError("invalid physical size"))
@@ -551,7 +552,7 @@ function hinted_frame(frame::Vetra.Frame; size=frame.size, hinting::TextHinting=
         p = Preparation(C_NULL,Dict(),Dict(),hinting.cache,0,0,0,0,hinting.flags,false)
         try
             result = nodes(p,frame,frame.nodes,(Float64(size[1])/frame.size[1],Float64(size[2])/frame.size[2]))
-            Vetra.Frame(frame.schema_version,frame.canvas,frame.revision,frame.size,result,frame.resources)
+            Vellum.Frame(frame.schema_version,frame.canvas,frame.revision,frame.size,result,frame.resources)
         finally
             try
                 for (ref,face) in p.faces

@@ -1,7 +1,9 @@
-module Vetra
+module Vellum
 
 import Base: *, ceil, diff, fill, copy
 import Libdl
+import FriBidi_jll
+using Base64: base64encode
 
 import LinearAlgebra
 import LinearAlgebra: dot, normalize
@@ -461,7 +463,7 @@ export ColorRGB, ColorRGBA, ColorRGBX, Image,
 
 # M003: Julia-native naming layer (snake_case, `!` on mutating entry
 # points). Defined in native_api.jl; the legacy names above remain
-# callable. See docs/MIGRATION.md.
+# callable.
 export new_image, minify_by2, magnify_by2, rotate_90, sub_image,
     super_image, opaque_bounds, stroke_shapes, parse_path,
     compute_bounds, compute_paths, layout_bounds, measure_text,
@@ -563,6 +565,7 @@ include("formats/codecs.jl")
 export ImageCodecs
 include("drawing.jl")
 include("wasm_pack.jl")
+include("data_drawing.jl")
 
 export Canvas, CanvasEdit, Frame, ResourcePayload, RasterPayload, ResourceRef, ResourceRecord,
     FrozenBytes, ImageData, ImageMetadata, image_metadata, raster_requirement, RasterReference,
@@ -575,9 +578,11 @@ export Canvas, CanvasEdit, Frame, ResourcePayload, RasterPayload, ResourceRef, R
     draw_text!, clear_region!, compose_surface!, map_point, portable_descriptor,
     Backend, Surface, Submission, Presenter, Capabilities, RenderPolicy,
     PlanDiagnostic, PreparedFrame, PreparedNode, capabilities, prepare,
-    make_surface, execute!, render, submit!, cancel!, completed, present!
+    make_surface, execute!, render, readback, submit!, cancel!, completed, present!
 
 export drawing, rectangle!, rasterize, savepng, savehtml, TextHinting, hinted_frame
+export InteractiveDrawing, feedback_action, wasm_module
+export DataDrawing, drawing_layer, draw_label!
 
 # --- precompile common entry points (T021) ---
 # Measured in fresh processes: the first fillRect/stroke/fillText call
@@ -601,11 +606,5 @@ precompile(clip, (Context, Path))
 precompile(getColor, (Image, Int, Int))
 precompile(encodeImage, (Image, FileFormat))
 
-function __init__()
-    # Optional codecs are discovered lazily on first use (D028): each
-    # _require* loads its package only when a user actually calls the
-    # feature, so `using Vetra` stays fast in codec-enabled environments.
-    return nothing
-end
 
-end # module Vetra
+end # module Vellum

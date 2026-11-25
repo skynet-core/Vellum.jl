@@ -1,9 +1,10 @@
 module ImageCodecs
 
-import ..Vetra
-const S = Vetra.ImageStorage
+import ..Vellum
+const S = Vellum.ImageStorage
 export CodecError, CodecLimits, ImageHeader, DecodedImage, CodecProvider, CodecRegistry,
-       register_provider!, providers, inspect_image, decode_image, encode_image,
+       register_provider!, providers, detect_format, inspect_image, decode_image, encode_image,
+       AnimationFrame, ImageSequence, eachframe,
        read_image, write_image
 
 struct CodecError <: Exception
@@ -49,7 +50,46 @@ struct DecodedImage
 end
 Base.close(image::DecodedImage) = close(image.buffer)
 
-"""Callbacks are adapter code, not portable payloads. inspect consumes a bounded IO."""
+"""An owned composited image, its exact display duration in seconds, and its source disposal rule."""
+struct AnimationFrame
+    image::Vellum.Image
+    duration::Rational{Int}
+    disposal::Symbol
+end
+
+"""
+    ImageSequence(frames, loop_count)
+
+An iterable collection of fully composited frames in display order. `loop_count`
+stores the encoded loop value. In GIF, zero requests indefinite looping and
+`nothing` means the file contained no loop directive.
+"""
+struct ImageSequence
+    frames::Vector{AnimationFrame}
+    loop_count::Union{Nothing,Int}
+end
+"""Return the number of decoded animation frames."""
+Base.length(seq::ImageSequence) = length(seq.frames)
+"""Yield each composited frame and its timing information in display order."""
+Base.iterate(seq::ImageSequence,state=1) = iterate(seq.frames,state)
+"""Iteration yields an owned image with timing and disposal metadata."""
+Base.eltype(::Type{ImageSequence}) = AnimationFrame
+
+"""Known magic bytes inherited by replacement providers for the standard image formats."""
+const FORMAT_SIGNATURES = (png=(Vellum.PNG_SIGNATURE,), jpeg=((0xff,0xd8),),
+    gif=map(codeunits,Vellum.GIF_SIGNATURES), qoi=(codeunits("qoif"),),
+    ppm=(codeunits("P3"),codeunits("P6")), bmp=(codeunits("BM"),))
+
+"""
+    CodecProvider(name, format, available, inspect, decode, encode; probe, probe_bytes, decode_sequence)
+
+Register callbacks for a raster format. Supply `nothing` for unavailable read
+or write operations. An optional `probe(prefix)::Bool` recognizes the format
+from at most `probe_bytes` encoded bytes. It must handle short inputs, including
+empty ones. Standard formats inherit their signature probes. An optional
+`decode_sequence(bytes, header, limits, cancelled)` returns an `ImageSequence`
+and must enforce the frame and memory limits during decoding.
+"""
 struct CodecProvider
     name::Symbol
     format::Symbol
@@ -57,10 +97,31 @@ struct CodecProvider
     inspect::Function
     decode::Union{Nothing,Function}
     encode::Union{Nothing,Function}
+    probe::Union{Nothing,Function}
+    probe_bytes::Int
+    decode_sequence::Union{Nothing,Function}
+    function CodecProvider(name,format,available,inspect,decode,encode;
+                           probe=nothing,probe_bytes::Integer=0,decode_sequence=nothing)
+        if probe === nothing && probe_bytes == 0
+            signatures = get(FORMAT_SIGNATURES,format,())
+            if !isempty(signatures)
+                probe_bytes = maximum(length,signatures)
+                probe = prefix -> any(signatures) do signature
+                    length(prefix) >= length(signature) &&
+                        all(i -> prefix[i] == signature[i],eachindex(signature))
+                end
+            end
+        end
+        0 <= probe_bytes <= typemax(Int) && ((probe === nothing) == iszero(probe_bytes)) ||
+            fail(:invalid_input,"a codec probe requires a positive byte limit")
+        return new(name,format,available,inspect,decode,encode,probe,Int(probe_bytes),decode_sequence)
+    end
 end
+"""Codec providers for one decoding or encoding context, keyed by image format."""
 struct CodecRegistry
     entries::Dict{Symbol,CodecProvider}
 end
+"""Register a provider and return it. Each format has one provider within a registry."""
 function register_provider!(registry::CodecRegistry, provider::CodecProvider)
     haskey(registry.entries,provider.format) && fail(:invalid_input,"duplicate codec format")
     registry.entries[provider.format] = provider
@@ -72,7 +133,7 @@ function CodecRegistry(entries::AbstractVector{CodecProvider}=builtin_providers(
 end
 function providers(registry::CodecRegistry=CodecRegistry())
     [(name=p.name,format=p.format,available=available(p),decode=p.decode !== nothing,
-      encode=p.encode !== nothing) for p in sort!(collect(values(registry.entries));by=p->p.format)]
+      encode=p.encode !== nothing,sequence=p.decode_sequence !== nothing) for p in sort!(collect(values(registry.entries));by=p->p.format)]
 end
 function available(provider)
     result = provider_call(provider.available)
@@ -115,7 +176,7 @@ end
 function png_header(io, limits, cancelled)
     used = Ref(0)
     take(n) = take_header(io,n,used,limits,cancelled)
-    Tuple(take(8)) == Vetra.PNG_SIGNATURE || fail(:invalid_input,"invalid PNG signature")
+    Tuple(take(8)) == Vellum.PNG_SIGNATURE || fail(:invalid_input,"invalid PNG signature")
     chunk = take(8)
     be32(chunk,1) == 13 && String(chunk[5:8]) == "IHDR" || fail(:invalid_input,"missing PNG IHDR")
     payload = take(13)
@@ -294,12 +355,26 @@ function validate_container(data, format, cancelled)
     end
 end
 
+"""Decode GIF within the caller's cumulative image and frame limits."""
+function gif_data(data,header,limits,cancelled)
+    Vellum.decodeGIF(data;max_pixels=limits.pixels,max_frames=limits.frames,
+        max_decoded_bytes=limits.decoded_bytes,max_encoded_bytes=limits.encoded_bytes,cancelled)
+end
+
+"""Expose each composited GIF frame and preserve its centisecond delay and disposal rule."""
+function gif_sequence(data,header,limits,cancelled)
+    gif = gif_data(data,header,limits,cancelled)
+    frames = [AnimationFrame(image,round(Int,100*delay)//100,disposal)
+              for (image,delay,disposal) in zip(gif.frames,gif.intervals,gif.disposals)]
+    return ImageSequence(frames,gif.loop_count)
+end
+
 function builtin_providers()
     [
-        CodecProvider(:pngfiles,:png,()->Base.locate_package(Vetra._PNGFILES_PKGID) !== nothing,
-                      png_header,(data,header,limits,cancelled)->Vetra.decodePNG(data),
-                      (image,options)->Vetra.encodePNG(image)),
-        CodecProvider(:jpegturbo,:jpeg,()->Base.locate_package(Vetra._JPEGTURBO_PKGID) !== nothing,
+        CodecProvider(:pngfiles,:png,()->Base.locate_package(Vellum._PNGFILES_PKGID) !== nothing,
+                      png_header,(data,header,limits,cancelled)->Vellum.decodePNG(data),
+                      (image,options)->Vellum.encodePNG(image)),
+        CodecProvider(:jpegturbo,:jpeg,()->Base.locate_package(Vellum._JPEGTURBO_PKGID) !== nothing,
                       jpeg_header,(data,header,limits,cancelled)->begin
                           # A legal COM bypasses JpegTurbo's invalid 624-byte
                           # minimum for small grayscale files; workspace is owned.
@@ -309,28 +384,26 @@ function builtin_providers()
                               data=vcat(data[1:end-2],UInt8[0xff,0xfe,size>>8,size&255],
                                         zeros(UInt8,padding-4),data[end-1:end])
                           end
-                          Vetra.decodeJPEG(data)
+                          Vellum.decodeJPEG(data)
                       end,
-                      (image,options)->Vetra.encodeJPEG(image;quality=options.quality,background=options.background)),
+                      (image,options)->Vellum.encodeJPEG(image;quality=options.quality,background=options.background)),
         CodecProvider(:builtin,:gif,Returns(true),gif_header,
-                      (data,header,limits,cancelled)->Vetra.newImage(Vetra.decodeGIF(data;
-                        max_pixels=limits.pixels,max_frames=limits.frames,
-                        max_decoded_bytes=limits.decoded_bytes,max_encoded_bytes=limits.encoded_bytes,cancelled)),nothing),
+                      (args...)->first(gif_data(args...).frames),nothing;decode_sequence=gif_sequence),
         CodecProvider(:builtin,:qoi,Returns(true),qoi_header,
-                      (data,header,limits,cancelled)->Vetra.newImage(Vetra.decodeQOI(data)),
-                      (image,options)->collect(codeunits(Vetra.encodeQOI(image)))),
+                      (data,header,limits,cancelled)->Vellum.newImage(Vellum.decodeQOI(data)),
+                      (image,options)->collect(codeunits(Vellum.encodeQOI(image)))),
         CodecProvider(:builtin,:ppm,Returns(true),ppm_header,
-                      (data,header,limits,cancelled)->Vetra.decodePPM(data),
-                      (image,options)->collect(codeunits(Vetra.encodePPM(image)))),
+                      (data,header,limits,cancelled)->Vellum.decodePPM(data),
+                      (image,options)->collect(codeunits(Vellum.encodePPM(image)))),
         CodecProvider(:builtin,:bmp,Returns(true),bmp_header,
-                      (data,header,limits,cancelled)->Vetra.decodeBMP(data),
-                      (image,options)->collect(codeunits(Vetra.encodeBMP(image))))
+                      (data,header,limits,cancelled)->Vellum.decodeBMP(data),
+                      (image,options)->collect(codeunits(Vellum.encodeBMP(image))))
     ]
 end
 function gif_header(io, limits, cancelled)
     bytes = take_header(io,13,Ref(0),limits,cancelled)
-    String(bytes[1:6]) in Vetra.GIF_SIGNATURES || fail(:invalid_input,"invalid GIF signature")
-    w,h = Vetra.gifRead16(bytes,7),Vetra.gifRead16(bytes,9)
+    String(bytes[1:6]) in Vellum.GIF_SIGNATURES || fail(:invalid_input,"invalid GIF signature")
+    w,h = Vellum.gifRead16(bytes,7),Vellum.gifRead16(bytes,9)
     ImageHeader(w,h,:gif,:indexed,8,:straight,:srgb,:assumed,1)
 end
 function qoi_header(io, limits, cancelled)
@@ -353,7 +426,7 @@ function ppm_header(io, limits, cancelled)
             comment = false
         end
         if !comment
-            if Char(byte) in Vetra.PPM_WS
+            if Char(byte) in Vellum.PPM_WS
                 if !isempty(field)
                     push!(fields,String(field))
                     field = UInt8[]
@@ -403,14 +476,26 @@ function provider_for(registry, format)
     provider === nothing && fail(:unsupported,"no registered provider for $format")
     provider
 end
-function detect_format(prefix)
-    length(prefix) >= 8 && Tuple(prefix[1:8]) == Vetra.PNG_SIGNATURE && return :png
-    length(prefix) >= 2 && prefix[1:2] == UInt8[0xff,0xd8] && return :jpeg
-    length(prefix) >= 6 && String(prefix[1:6]) in Vetra.GIF_SIGNATURES && return :gif
-    length(prefix) >= 4 && String(prefix[1:4]) == "qoif" && return :qoi
-    length(prefix) >= 2 && String(prefix[1:2]) in ("P3","P6") && return :ppm
-    length(prefix) >= 2 && prefix[1:2] == UInt8[0x42,0x4d] && return :bmp
-    fail(:unsupported,"unrecognized or unsupported image signature")
+"""
+    detect_format(bytes; registry=CodecRegistry(), limits=CodecLimits()) -> Symbol
+
+Return the format recognized by exactly one registered probe. Each callback gets
+a private prefix bounded by its declared size and the header budget. Supply an
+explicit format to inspection or decoding when multiple formats match.
+"""
+function detect_format(bytes;registry=CodecRegistry(),limits=CodecLimits())
+    matched = nothing
+    for provider in values(registry.entries)
+        provider.probe === nothing && continue
+        count = min(provider.probe_bytes,limits.header_bytes,length(bytes))
+        accepted = provider_call(provider.probe,bytes[1:count])
+        accepted isa Bool || fail(:provider_failure,"format probe must return Bool")
+        accepted || continue
+        matched === nothing || fail(:invalid_input,"ambiguous image signature; supply format explicitly")
+        matched = provider.format
+    end
+    matched === nothing && fail(:unsupported,"unrecognized or unsupported image signature")
+    return matched
 end
 
 """Consumes header bytes only; does not seek or close caller-owned IO."""
@@ -423,8 +508,11 @@ function inspect_image(io::IO;format::Symbol,limits=CodecLimits(),registry=Codec
         header.color_space in (:srgb,:linear_srgb) || fail(:unsupported,"unsupported source interpretation")
     header
 end
-function inspect_image(data::Vector{UInt8};format=detect_format(data),kwargs...)
-    inspect_image(IOBuffer(data);format,kwargs...)
+"""Inspect encoded bytes using the requested format or the supplied registry's probes."""
+function inspect_image(data::Vector{UInt8};format=nothing,registry=CodecRegistry(),limits=CodecLimits(),cancelled=()->false)
+    check_cancel(cancelled)
+    format === nothing && (format = detect_format(data;registry,limits))
+    inspect_image(IOBuffer(data);format,registry,limits,cancelled)
 end
 function read_encoded(io, limits, cancelled)
     data = UInt8[]
@@ -441,7 +529,7 @@ end
 function orient_image(image, orientation)
     orientation == 1 && return image
     w,h = image.width,image.height
-    out = orientation <= 4 ? Vetra.newImage(w,h) : Vetra.newImage(h,w)
+    out = orientation <= 4 ? Vellum.newImage(w,h) : Vellum.newImage(h,w)
     for y in 1:h, x in 1:w
         dx,dy = orientation == 2 ? (w-x+1,y) : orientation == 3 ? (w-x+1,h-y+1) :
             orientation == 4 ? (x,h-y+1) : orientation == 5 ? (y,x) :
@@ -460,10 +548,11 @@ function provider_call(callback, args...)
     end
 end
 
-function decode_image(data::Vector{UInt8};format=detect_format(data),limits=CodecLimits(),
+function decode_image(data::Vector{UInt8};format=nothing,limits=CodecLimits(),
                       registry=CodecRegistry(),cancelled=()->false)
     length(data) <= limits.encoded_bytes || fail(:resource_limit,"encoded byte limit exceeded")
     header = inspect_image(data;format,limits,registry,cancelled)
+    format = header.format
     provider = provider_for(registry,format)
     available(provider) || fail(:provider_unavailable,"install/register provider $(provider.name) for $format")
     provider.decode !== nothing || fail(:unsupported,"provider cannot decode")
@@ -471,7 +560,7 @@ function decode_image(data::Vector{UInt8};format=detect_format(data),limits=Code
         fail(:invalid_input,"JPEG is missing its end marker")
     validate_container(data,format,cancelled)
     image = provider_call(provider.decode,data,header,limits,cancelled)
-    image isa Vetra.Image || fail(:provider_failure,"decoder must return a legacy raster for this adapter")
+    image isa Vellum.Image || fail(:provider_failure,"decoder must return a legacy raster for this adapter")
     (image.width,image.height) == (header.width,header.height) ||
         fail(:provider_failure,"decoded dimensions differ from inspected source")
     count = check_size(image.width,image.height,limits)
@@ -496,12 +585,44 @@ function decode_image(io::IO;limits=CodecLimits(),cancelled=()->false,kwargs...)
     result = decode_image(data;limits,cancelled,kwargs...)
     DecodedImage(result.buffer,result.source,merge(result.report,(encoded_buffer_bytes=length(data),)))
 end
+
+"""
+    eachframe(bytes; format=nothing, limits=CodecLimits(), registry=CodecRegistry(), cancelled=()->false)
+    eachframe(io; kwargs...)
+
+Decode a bounded image sequence and iterate its composited frames. Frames are
+retained in memory up to the decoded-byte and frame-count limits. An unsupported
+format raises `CodecError`. The caller retains ownership of an input stream.
+"""
+function eachframe(data::Vector{UInt8};format=nothing,limits=CodecLimits(),registry=CodecRegistry(),cancelled=()->false)
+    length(data) <= limits.encoded_bytes || fail(:resource_limit,"encoded byte limit exceeded")
+    header = inspect_image(data;format,limits,registry,cancelled)
+    provider = provider_for(registry,header.format)
+    available(provider) || fail(:provider_unavailable,"sequence provider is unavailable")
+    provider.decode_sequence === nothing && fail(:unsupported,"provider cannot decode image sequences")
+    seq = provider_call(provider.decode_sequence,data,header,limits,cancelled)
+    seq isa ImageSequence || fail(:provider_failure,"expected an ImageSequence")
+    frame_bytes = check_size(header.width,header.height,limits)
+    0 < length(seq) <= min(limits.frames,limits.decoded_bytes ÷ frame_bytes) ||
+        fail(:resource_limit,"decoded sequence exceeds frame or byte limits")
+    for frame in seq
+        check_cancel(cancelled)
+        image = frame.image
+        (image.width,image.height) == (header.width,header.height) && length(image.data) == frame_bytes &&
+            valid_pixels(image.data) && frame.duration >= 0 || fail(:provider_failure,"invalid composited frame")
+    end
+    return seq
+end
+
+function eachframe(io::IO;limits=CodecLimits(),cancelled=()->false,kwargs...)
+    return eachframe(read_encoded(io,limits,cancelled);limits,cancelled,kwargs...)
+end
 function read_image(path::AbstractString;kwargs...)
     open(io -> decode_image(io;kwargs...),path)
 end
 
 valid_pixels(bytes) = all(i -> max(bytes[i],bytes[i+1],bytes[i+2]) <= bytes[i+3],1:4:length(bytes))
-function encode_image(image::Vetra.Image;format::Symbol,limits=CodecLimits(),
+function encode_image(image::Vellum.Image;format::Symbol,limits=CodecLimits(),
                       registry=CodecRegistry(),cancelled=()->false,quality::Int=92,background=nothing)
     check_cancel(cancelled)
     count = check_size(image.width,image.height,limits)
@@ -512,21 +633,21 @@ function encode_image(image::Vetra.Image;format::Symbol,limits=CodecLimits(),
         opaque = all(==(0xff),@view image.data[4:4:end])
         !opaque && background === nothing && fail(:invalid_input,"JPEG alpha removal requires an explicit background")
     end
-    background === nothing || background isa Vetra.ColorRGB || fail(:invalid_input,"background must be ColorRGB")
+    background === nothing || background isa Vellum.ColorRGB || fail(:invalid_input,"background must be ColorRGB")
     provider = provider_for(registry,format)
     available(provider) || fail(:provider_unavailable,"install/register provider $(provider.name) for $format")
     provider.encode !== nothing || fail(:unsupported,"provider cannot encode")
     if format == :ppm && background !== nothing
-        out = Vetra.newImage(image.width,image.height)
+        out = Vellum.newImage(image.width,image.height)
         for i in 1:4:count
             for (k,channel) in enumerate((background.r,background.g,background.b))
-                out.data[i+k-1] = UInt8(Vetra._jpegComposite(Int(image.data[i+k-1]),Int(channel),Int(image.data[i+3])))
+                out.data[i+k-1] = UInt8(Vellum._jpegComposite(Int(image.data[i+k-1]),Int(channel),Int(image.data[i+3])))
             end
             out.data[i+3] = 0xff
         end
         image = out
     end
-    bytes = provider_call(provider.encode,image,(quality=quality,background=background === nothing ? Vetra.rgb(255,255,255) : background))
+    bytes = provider_call(provider.encode,image,(quality=quality,background=background === nothing ? Vellum.rgb(255,255,255) : background))
     bytes isa Vector{UInt8} || fail(:provider_failure,"encoder must return bytes")
     isempty(bytes) && fail(:provider_failure,"encoder returned an empty payload")
     length(bytes) <= limits.encoded_bytes || fail(:resource_limit,"encoded output limit exceeded")
@@ -550,7 +671,7 @@ function encode_image(source::S.AbstractImageProvider;limits=CodecLimits(),cance
         S.with_pixels(converted.buffer) do lease
             GC.@preserve lease begin
                 bytes = unsafe_wrap(Vector{UInt8},S.lease_pointer(lease),4*meta.width*meta.height;own=false)
-                result = encode_image(Vetra.Image(meta.width,meta.height,bytes);limits,cancelled,kwargs...)
+                result = encode_image(Vellum.Image(meta.width,meta.height,bytes);limits,cancelled,kwargs...)
                 (bytes=result.bytes,report=merge(result.report,(source_staging_bytes=
                     Base.checked_add(converted.report.copied_bytes,result.report.source_staging_bytes),)))
             end

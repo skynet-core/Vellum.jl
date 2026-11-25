@@ -1,0 +1,10 @@
+[deps]
+Cairo_jll = "83423d85-b0ee-5818-9007-b63ccbeb887a"
+Fontconfig_jll = "a3f928ae-7b40-5064-980b-68af3947d34b"
+Skia = "d59498f3-381e-4841-a765-4609d464ae1b"
+
+[compat]
+Cairo_jll = "1.18"
+Fontconfig_jll = "2"
+Skia = "0.1.5"
+julia = "1.10"

@@ -16,7 +16,7 @@
 # - Upstream's encodeDib writes a 136-byte DIB that claims biSize = 124, so
 #   upstream's own decodeBmp of an encodeBmp file reads pixels 12 bytes
 #   early; upstream disabled its encode->decode round-trip assertions for
-#   this reason (test_bmp.nim, commented blocks). Vetra fixes the encoder
+#   this reason (test_bmp.nim, commented blocks). Vellum fixes the encoder
 #   (2026-11-12, E001) with a valid 124-byte BITMAPV5HEADER.
 # - Divergence from upstream at the 32-bit file boundary (recorded
 #   2026-11-12, E001 review): upstream's encoder already wrote straight
@@ -25,15 +25,11 @@
 #   and zero alpha. The BMP 32-bit format carries straight RGB plus an
 #   alpha mask (WIC's primary V5 output format is
 #   GUID_WICPixelFormat32bppBGRA; Pillow decodes 32-bit BMP alpha as
-#   straight RGBA). Vetra keeps the straight encode and fixes the masked
+#   straight RGBA). Vellum keeps the straight encode and fixes the masked
 #   decode (rgbx(rgba(...)) straight -> premul), so files interoperate.
 #   The pair still round-trips exactly: for valid premultiplied storage
 #   (c <= a), toPremul(toStraight(c, a)) == c (round error < 1/2 channel,
-#   cancelled by the (c' * a + 127) div 255). The pinned 32-bit mask
-#   fixtures (knight.32, test4x2, test16x16) are upstream oracles of the
-#   old direct-store decode; test/formats_tests.jl derives the corrected
-#   expectation from the untouched pinned raw (only pixels with stored
-#   a < 255 differ) and pins the divergence count explicitly.
+#   cancelled by the (c' * a + 127) div 255).
 
 const BMP_SIGNATURE = "BM"
 

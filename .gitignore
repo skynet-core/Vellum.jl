@@ -3,3 +3,13 @@
 .codex
 .opencode
 .aws
+*.cov
+/roadmaps/
+/public/playground/
+/docs/build/
+/tutorials/output/
+/tutorials/*.wasm
+/tutorials/*.html
+/tutorials/*.png
+reports/
+profiles/

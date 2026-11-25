@@ -1,8 +1,8 @@
 """Bounded CPU adapter for portable frames; independent of presentation and timers."""
 module CPUBackend
 
-import ..Vetra
-using ..Vetra: Frame, PreparedFrame, Transform2D, FillPath, StrokePath, ImageRegion,
+import ..Vellum
+using ..Vellum: Frame, PreparedFrame, Transform2D, FillPath, StrokePath, ImageRegion,
     ClearRegion, CompositeGroup, ImageData, RasterReference, Solid, DrawingState, rectangle_path
 import ..ImageTiles
 import ..ImageStorage
@@ -21,21 +21,28 @@ mutable struct Cancellation
 end
 Cancellation() = Cancellation(Threads.Atomic{Bool}(false))
 cancel!(token::Cancellation) = (token.requested[]=true; nothing)
-const RenderCancelled=Vetra.PortableGeometry.RenderCancelled
+const RenderCancelled=Vellum.PortableGeometry.RenderCancelled
 check_cancel(token) = token !== nothing && token.requested[] ? throw(RenderCancelled()) : nothing
 
-mutable struct CPUSurface <: Vetra.Surface
-    image::Vetra.Image
+mutable struct CPUSurface <: Vellum.Surface
+    image::Vellum.Image
     valid::Threads.Atomic{Bool}
     guard::ReentrantLock
 end
-CPUSurface(image::Vetra.Image) = CPUSurface(image,Threads.Atomic{Bool}(true),ReentrantLock())
+CPUSurface(image::Vellum.Image) = CPUSurface(image,Threads.Atomic{Bool}(true),ReentrantLock())
+"""Copy a valid completed CPU surface into an independent image while holding its render lock."""
 function pixels(surface::CPUSurface)
     lock(surface.guard) do
         surface.valid[] || throw(ArgumentError("surface invalid after interrupted rendering"))
         copy(surface.image)
     end
 end
+
+"""Return a detached image of the completed CPU surface."""
+Vellum.readback(surface::CPUSurface) = pixels(surface)
+
+"""Transfer the pixel buffer of a freshly rendered, exclusively owned CPU surface."""
+Vellum._take_raster_image(surface::CPUSurface) = surface.image
 
 struct CPUPaint
     color::RGBA
@@ -58,7 +65,7 @@ function CPUPaint(geometry)
 end
 @inline function sample_paint(paint::CPUPaint,point)::RGBA
     isempty(paint.stops) && return paint.color
-    q=Vetra.map_point(paint.mapping,point)
+    q=Vellum.map_point(paint.mapping,point)
     t=clamp(((q[1]-paint.start[1])*paint.unit[1]+(q[2]-paint.start[2])*paint.unit[2])/paint.length,0,1)
     for index in eachindex(paint.stops)
         position,color=paint.stops[index]
@@ -151,7 +158,7 @@ struct WorkCache
         Tuple{BigInt,BigInt,BigInt,BigInt,BigInt,BigInt,BigInt,BigInt,Bool}}
 end
 
-mutable struct Renderer <: Vetra.Backend
+mutable struct Renderer <: Vellum.Backend
     tile_size::Int
     samples::Int
     max_depth::Int
@@ -169,7 +176,7 @@ mutable struct Renderer <: Vetra.Backend
     scratch_budget::Int
     reserved_bytes::Int
     peak_reserved_bytes::Int
-    text_cache::Vetra._CapturedTextCache
+    text_cache::Vellum._CapturedTextCache
     text_preparation_bytes::Int
     provider::ProviderState
     orientation::Vector{UInt64}
@@ -190,7 +197,7 @@ function scratch_payload(width,height,samples,depth,effect)
     pixels=BigInt(width)*height
     pixels*32*(depth+1+Int(effect))+
         2*cld(pixels*samples^2,64)*8+BigInt(width)*samples*sizeof(Int)+
-        Vetra.PortableGeometry.ORIENTATION_BYTES
+        Vellum.PortableGeometry.ORIENTATION_BYTES
 end
 
 """
@@ -205,7 +212,7 @@ function scratch_usage(renderer::Renderer)
         (;reserved_bytes=renderer.reserved_bytes,peak_reserved_bytes=renderer.peak_reserved_bytes,
            budget_bytes=renderer.scratch_budget,extent=size(renderer.scratch[1]),
            layers=length(renderer.scratch),horizontal_extent=size(renderer.horizontal),
-           orientation_bytes=renderer.provider.closed ? 0 : Vetra.PortableGeometry.ORIENTATION_BYTES,
+           orientation_bytes=renderer.provider.closed ? 0 : Vellum.PortableGeometry.ORIENTATION_BYTES,
            work_bound=deepcopy(renderer.work_bound))
     end
 end
@@ -235,8 +242,8 @@ function Renderer(;tile_size::Integer=32,samples::Integer=4,max_depth::Integer=8
         falses(tile_size*samples,tile_size*samples),falses(tile_size*samples,tile_size*samples),
         zeros(Int,tile_size*samples),ReentrantLock(),
         nothing,(0,0),Node[],Matrix{RGBA}(undef,0,0),scratch_bytes,Int(needed),Int(needed),
-        Vetra._CapturedTextCache(Int(text_cache_bytes)),Int(text_preparation_bytes),provider,
-        Vetra.PortableGeometry.orientation_workspace(),(;),nothing)
+        Vellum._CapturedTextCache(Int(text_cache_bytes)),Int(text_preparation_bytes),provider,
+        Vellum.PortableGeometry.orientation_workspace(),(;),nothing)
 end
 
 """Derived text Julia residency, including deferred layouts; excludes native heap."""
@@ -250,8 +257,8 @@ end
 
 function clear_text_cache!(renderer::Renderer)
     lock(renderer.guard) do
-        foreach(Vetra._releaseTextValue!,values(renderer.text_cache.entries))
-        renderer.text_cache=Vetra._CapturedTextCache(renderer.text_cache.budget)
+        foreach(Vellum._releaseTextValue!,values(renderer.text_cache.entries))
+        renderer.text_cache=Vellum._CapturedTextCache(renderer.text_cache.budget)
         nothing
     end
 end
@@ -268,25 +275,25 @@ function cpu_capabilities(with_raster_provider::Bool)
         :text_single_face_unicode_v1,:text_ordered_fallback_v1,:text_features_v1)
     external=with_raster_provider ?
         (:image_provider_revision_v1,Symbol("image_storage.tiled"),:linear_srgb_image) : ()
-    Vetra.Capabilities(features=(
+    Vellum.Capabilities(features=(
         :fill_path,:stroke_path,:image,:clear,:group,:float64,:clip,:curve_paths,
         :gradient,:linear_sampling,:multiply,:effect_box_blur_v1,text...,external...),
         formats=isempty(external) ? (:rgba8,) : (:gray8,:rgb8,:bgr8,:rgba8,:bgra8))
 end
 
 """Return CPU capabilities for the renderer's configured provider profile."""
-Vetra.capabilities(renderer::Renderer) = cpu_capabilities(renderer.provider.registry !== nothing)
+Vellum.capabilities(renderer::Renderer) = cpu_capabilities(renderer.provider.registry !== nothing)
 
-function Vetra.prepare_retention(renderer::Renderer,frame::Frame)
+function Vellum.prepare_retention(renderer::Renderer,frame::Frame)
     lock(renderer.guard) do
-        renderer.provider.closed && Vetra.model_error(:resource_unavailable,"CPU renderer is closed")
+        renderer.provider.closed && Vellum.model_error(:resource_unavailable,"CPU renderer is closed")
         any(r->r.payload isa RasterReference,frame.resources) || return nothing
         registry=renderer.provider.registry
-        registry===nothing && Vetra.model_error(:resource_unavailable,"CPU renderer has no raster registry")
+        registry===nothing && Vellum.model_error(:resource_unavailable,"CPU renderer has no raster registry")
         T.retain_frame(registry,frame)
     end
 end
-Vetra.make_surface(::Renderer,size) = CPUSurface(Vetra.newImage(Vetra.checked_dimensions(size...)...))
+Vellum.make_surface(::Renderer,size) = CPUSurface(Vellum.newImage(Vellum.checked_dimensions(size...)...))
 
 function physical_radius(radius,pixels,logical)
     isfinite(radius) && radius>=0 && isfinite(logical) && logical>0 && pixels>0 ||
@@ -326,7 +333,7 @@ function reserve_scratch!(renderer,support)
     if width<=oldwidth && height<=oldheight && (!effect || !isempty(renderer.horizontal))
         return nothing
     end
-    peak=renderer.reserved_bytes+needed-Vetra.PortableGeometry.ORIENTATION_BYTES
+    peak=renderer.reserved_bytes+needed-Vellum.PortableGeometry.ORIENTATION_BYTES
     peak<=renderer.scratch_budget ||
         throw(ArgumentError("CPU halo scratch growth peak exceeds scratch_bytes; use a fresh renderer or raise the budget"))
     # Allocate transactionally; failed reservations preserve both destination and old cached plan.
@@ -360,10 +367,10 @@ function lower_nodes(renderer,nodes,frame,viewport,target,depth,counts,preparati
                 op.opacity,op.blend,radius))
             continue
         end
-        if op isa Vetra.TextRun
-            path=Vetra._portable_text_path(op,frame,node.id;max_commands=renderer.max_vertices,
+        if op isa Vellum.TextRun
+            path=Vellum._portable_text_path(op,frame,node.id;max_commands=renderer.max_vertices,
                 cache=renderer.text_cache,preparation)
-            outlined=Vetra.SemanticNode(node.id,node.revision,FillPath(path,op.state,:nonzero))
+            outlined=Vellum.SemanticNode(node.id,node.revision,FillPath(path,op.state,:nonzero))
             append!(result,lower_nodes(renderer,(outlined,),frame,viewport,target,depth,counts,preparation))
             continue
         end
@@ -378,12 +385,12 @@ function lower_nodes(renderer,nodes,frame,viewport,target,depth,counts,preparati
         geometry = if op isa FillPath
             lower_fill(op.path,state.fill;transform,winding=op.winding,options...)
         elseif op isa StrokePath
-            Vetra.PortableGeometry.lower_stroke(op.path,state.stroke,state.stroke_style;transform,options...)
+            Vellum.PortableGeometry.lower_stroke(op.path,state.stroke,state.stroke_style;transform,options...)
         else
             rectangle=op isa ImageRegion ? op.destination : op.rectangle
             lower_fill(rectangle_path(rectangle...),Solid(0,0,0);transform,options...)
         end
-        if geometry.paint isa Vetra.LinearGradient && geometry.paint.space === :canvas
+        if geometry.paint isa Vellum.LinearGradient && geometry.paint.space === :canvas
             geometry=PreparedGeometry(geometry.contours,geometry.winding,geometry.union_pieces,
                 geometry.paint,geometry.canvas_to_paint*inverse_transform(viewport),geometry.bounds)
         end
@@ -394,7 +401,7 @@ function lower_nodes(renderer,nodes,frame,viewport,target,depth,counts,preparati
             push!(clips,lower_fill(clip.path,Solid(0,0,0);
                 transform=viewport*clip.transform,winding=clip.winding,options...))
         end
-        counts[1]+=geometry.paint isa Vetra.LinearGradient ? length(geometry.paint.stops) : 0
+        counts[1]+=geometry.paint isa Vellum.LinearGradient ? length(geometry.paint.stops) : 0
         counts[1] <= renderer.max_nodes || throw(ArgumentError("CPU paint stop budget exceeded"))
         for item in (geometry,clips...)
             for contour in item.contours
@@ -404,10 +411,10 @@ function lower_nodes(renderer,nodes,frame,viewport,target,depth,counts,preparati
                 counts[2]+=vertices
             end
         end
-        image=op isa ImageRegion ? Vetra.resource(frame,op.image) : nothing
+        image=op isa ImageRegion ? Vellum.resource(frame,op.image) : nothing
         image === nothing || image isa ImageData ||
             (image isa RasterReference && renderer.provider.registry!==nothing) ||
-            throw(Vetra.CapabilityError(node.id,:cpu_image_provider))
+            throw(Vellum.CapabilityError(node.id,:cpu_image_provider))
         source=op isa ImageRegion ? op.source : (0.0,0.0,0.0,0.0)
         mapping=Transform2D()
         if op isa ImageRegion && op.destination[3]>0 && op.destination[4]>0
@@ -428,7 +435,7 @@ function cpu_plan(renderer,plan,size)
         isfinite(width) && isfinite(height) && width>0 && height>0 ||
             throw(ArgumentError("CPU logical viewport must be finite and positive"))
         viewport=Transform2D(size[1]/width,0,0,size[2]/height)
-        preparation=Vetra._TextPreparation(renderer.text_preparation_bytes)
+        preparation=Vellum._TextPreparation(renderer.text_preparation_bytes)
         nodes=lower_nodes(renderer,plan.frame.nodes,plan.frame,viewport,size,0,[0,0],preparation)
         reserve_scratch!(renderer,nested_support(nodes))
         renderer.work_cache=nothing
@@ -473,7 +480,7 @@ function coverage_work_bound(renderer,nodes,w,h,reference)
     traversals+=BigInt(length(renderer.scratch[1]))*(groups+1)
     (;tiles,vertices,contours,masks,
       predicates=tiles*predicates,traversal_units=tiles*traversals,
-      fallback_primitives=tiles*predicates*Vetra.PortableGeometry.ORIENTATION_PRIMITIVE_BOUND,
+      fallback_primitives=tiles*predicates*Vellum.PortableGeometry.ORIENTATION_PRIMITIVE_BOUND,
       commit_bytes=BigInt(4)*w*h,reference)
 end
 
@@ -513,7 +520,7 @@ end
     ntuple(c -> image.pixels[offset+c]/255,4)
 end
 function sample_image(draw,point)::RGBA
-    x,y=Vetra.map_point(draw.mapping,point)
+    x,y=Vellum.map_point(draw.mapping,point)
     if draw.sampling === :nearest
         return image_pixel(draw.image,floor(Int,x),floor(Int,y),draw.source)
     end
@@ -530,7 +537,7 @@ end
 function clear_provider_cache!(renderer::Renderer)
     lock(renderer.guard) do
         p=renderer.provider
-        p.running && Vetra.model_error(:invalid_state,"cannot clear a CPU cache from an execution callback")
+        p.running && Vellum.model_error(:invalid_state,"cannot clear a CPU cache from an execution callback")
         foreach(t->close(t.buffer),values(p.tiles))
         empty!(p.tiles)
     end
@@ -559,13 +566,13 @@ end
 function Base.close(renderer::Renderer)
     lock(renderer.guard) do
         renderer.provider.closed && return nothing
-        renderer.provider.running && Vetra.model_error(:invalid_state,"cannot close a CPU renderer from an execution callback")
+        renderer.provider.running && Vellum.model_error(:invalid_state,"cannot close a CPU renderer from an execution callback")
         renderer.provider.closed=true
         clear_provider_cache!(renderer)
         renderer.provider.output=UInt8[]
         renderer.provider.colors=Matrix{RGBA}(undef,0,0)
         renderer.orientation=UInt64[]
-        renderer.reserved_bytes-=Vetra.PortableGeometry.ORIENTATION_BYTES
+        renderer.reserved_bytes-=Vellum.PortableGeometry.ORIENTATION_BYTES
         renderer.work_bound=(;)
         renderer.work_cache=nothing
         renderer.cached_frame=nothing
@@ -576,18 +583,18 @@ function Base.close(renderer::Renderer)
 end
 function begin_provider_execution!(renderer,plan)
     p=renderer.provider
-    p.closed && Vetra.model_error(:resource_unavailable,"CPU renderer is closed")
+    p.closed && Vellum.model_error(:resource_unavailable,"CPU renderer is closed")
     plan.backend===renderer || throw(ArgumentError("prepared frame belongs to another renderer"))
     external=any(r->r.payload isa RasterReference,plan.frame.resources)
     if external
         plan.retention isa T.AbstractRevisionLease && T.revision_resolver(plan.retention)===p.registry ||
-            Vetra.model_error(:invalid_input,"CPU provider plan lacks its registry retention")
+            Vellum.model_error(:invalid_input,"CPU provider plan lacks its registry retention")
     else
-        plan.retention===nothing || Vetra.model_error(:invalid_input,"unexpected CPU plan retention")
+        plan.retention===nothing || Vellum.model_error(:invalid_input,"unexpected CPU plan retention")
         return false
     end
     # This admission linearizes with plan close before geometry-cache access.
-    p.execution=Vetra.execution_retention(plan)
+    p.execution=Vellum.execution_retention(plan)
     for record in plan.frame.resources
         d=record.payload
         d isa RasterReference || continue
@@ -637,18 +644,18 @@ function reserve_provider!(renderer,nodes,w,h)
     samples=tiles*provider_samples_bound(nodes,renderer.tile_size,renderer.tile_size,renderer.samples)
     source=samples*4*p.tile_size^2
     samples<=p.sample_limit && source<=p.source_limit ||
-        Vetra.model_error(:resource_limit,"CPU provider sample/source work reservation exceeded")
+        Vellum.model_error(:resource_limit,"CPU provider sample/source work reservation exceeded")
     output=BigInt(w)*h*4
-    output<=p.output_limit || Vetra.model_error(:resource_limit,"CPU provider output budget exceeded")
+    output<=p.output_limit || Vellum.model_error(:resource_limit,"CPU provider output budget exceeded")
     output_growth=output>length(p.output)
     output_peak=output_growth ? output+length(p.output) : BigInt(length(p.output))
-    output_peak<=p.output_limit || Vetra.model_error(:resource_limit,"CPU provider output growth exceeds budget")
+    output_peak<=p.output_limit || Vellum.model_error(:resource_limit,"CPU provider output growth exceeds budget")
     cw,ch=tw*renderer.samples,th*renderer.samples
     color_growth=samples>0 && (cw>size(p.colors,1) || ch>size(p.colors,2))
     colors=BigInt(cw)*ch*32
     temporary=samples>0 ? BigInt(p.tile_size)^2*12 : BigInt(0)
     workspace=(color_growth ? colors+length(p.colors)*32 : BigInt(length(p.colors))*32)+temporary
-    workspace<=p.workspace_limit || Vetra.model_error(:resource_limit,"CPU provider workspace/growth budget exceeded")
+    workspace<=p.workspace_limit || Vellum.model_error(:resource_limit,"CPU provider workspace/growth budget exceeded")
     new_output=output_growth ? Vector{UInt8}(undef,Int(output)) : p.output
     new_colors=color_growth ? Matrix{RGBA}(undef,cw,ch) : p.colors
     p.output=new_output
@@ -683,7 +690,7 @@ function provider_pixel!(renderer,d,x,y,source,token)::RGBA
         width,height=min(t,Int(m.width)-tx),min(t,Int(m.height)-ty)
         pixels=width*height
         pixels<=p.source_limit-p.source_pixels ||
-            Vetra.model_error(:resource_limit,"CPU provider source work exhausted")
+            Vellum.model_error(:resource_limit,"CPU provider source work exhausted")
         p.source_pixels+=pixels
         capacity=div(p.cache_limit,t*t*4)
         if length(p.tiles)==capacity
@@ -728,9 +735,9 @@ function provider_pixel!(renderer,d,x,y,source,token)::RGBA
 end
 function provider_color!(renderer,draw,point,token)::RGBA
     p=renderer.provider
-    p.samples<p.sample_limit || Vetra.model_error(:resource_limit,"CPU provider sample work exhausted")
+    p.samples<p.sample_limit || Vellum.model_error(:resource_limit,"CPU provider sample work exhausted")
     p.samples+=1
-    x,y=Vetra.map_point(draw.mapping,point)
+    x,y=Vellum.map_point(draw.mapping,point)
     if draw.sampling===:nearest
         return provider_pixel!(renderer,draw.image,checked_source_floor(x),checked_source_floor(y),draw.source,token)
     end
@@ -779,7 +786,7 @@ function crossing_column(a,b,y,x0,samples,columns,workspace=nothing,token=nothin
         check_cancel(token)
         middle=lo+(hi-lo)÷2
         x=sample_coordinate(x0,middle,samples)
-        side=Vetra.PortableGeometry.orientation_sign(a,b,(x,y),workspace,token)
+        side=Vellum.PortableGeometry.orientation_sign(a,b,(x,y),workspace,token)
         if upward ? side<=0 : side>=0
             hi=middle
         else
@@ -856,6 +863,10 @@ function raster_mask!(renderer,mask,geometry,x0,y0,w,h,token=nothing)
         clear_columns!(renderer.crossings,columns,token)
         for contour in geometry.contours
             check_cancel(token)
+            # Each closed crossing loop contributes zero winding outside its bounds.
+            # A curved stroke may contain thousands of pieces outside this sample row.
+            left,top,right,bottom = contour.bounds
+            top <= y < bottom && left < x0+w && x0 < right || continue
             points=contour.points
             for i in eachindex(points)
                 (i-1)%256==0 && check_cancel(token)
@@ -1058,11 +1069,11 @@ function draw_region!(renderer, nodes, x0, y0, w, h, destination, stride, ox, oy
 end
 
 """Blocking execution; external raster work commits only after full-request private completion."""
-function Vetra.execute!(renderer::Renderer,surface::CPUSurface,plan::PreparedFrame;
+function Vellum.execute!(renderer::Renderer,surface::CPUSurface,plan::PreparedFrame;
                         region=nothing,cancellation=nothing,reference::Bool=false)
     lock(renderer.guard) do
         p=renderer.provider
-        p.running && Vetra.model_error(:invalid_state,"reentrant CPU execution")
+        p.running && Vellum.model_error(:invalid_state,"reentrant CPU execution")
         p.running=true
         try
           lock(surface.guard) do
@@ -1139,9 +1150,9 @@ function render_reference(frame::Frame;size=frame.size,kwargs...)
     renderer=Renderer(;kwargs...)
     plan=nothing
     try
-        plan=Vetra.prepare(renderer,frame)
-        surface=Vetra.make_surface(renderer,size)
-        Vetra.execute!(renderer,surface,plan;reference=true)
+        plan=Vellum.prepare(renderer,frame)
+        surface=Vellum.make_surface(renderer,size)
+        Vellum.execute!(renderer,surface,plan;reference=true)
     finally
         try
             plan===nothing || close(plan)

@@ -19,12 +19,17 @@
 
 const GIF_SIGNATURES = ("GIF87a", "GIF89a")
 
-"""Upstream `Gif`: decoded frames plus per-frame intervals and total duration."""
+"""Composited GIF frames, delays in seconds, disposal operations and optional Netscape loop count."""
 struct Gif
     frames::Vector{Image}
     intervals::Vector{Float32}
     duration::Float32
+    disposals::Vector{Symbol}
+    loop_count::Union{Nothing,Int}
 end
+
+"""Create a GIF from precomposited images with unspecified disposal and looping metadata."""
+Gif(frames, intervals, duration) = Gif(frames, intervals, duration, fill(:unspecified,length(frames)), nothing)
 
 function _gifFail(reason::String = "unable to load")
     throw(ArgumentError("Invalid GIF buffer, $(reason)"))
@@ -110,6 +115,8 @@ function decodeGIF(data::Vector{UInt8}; max_pixels::Int=64*1024*1024,
 
     frames = Vector{Image}()
     intervals = Vector{Float32}()
+    disposals = Symbol[]
+    loop_count = nothing
     canvas = newImage(screenWidth,screenHeight)
     for i in 1:4:length(canvas.data), channel in 1:4
         canvas.data[i+channel-1] = bgColor[channel]
@@ -317,6 +324,7 @@ function decodeGIF(data::Vector{UInt8}; max_pixels::Int=64*1024*1024,
                 end
             end
             push!(frames,copy(canvas))
+            push!(disposals,(:unspecified,:keep,:background,:previous)[disposalMethod+1])
             # Disposal affects the next frame, and only this image's rectangle.
             if disposalMethod == 2
                 for y in 0:imageHeight-1, x in 0:imageWidth-1, channel in 1:4
@@ -363,7 +371,12 @@ function decodeGIF(data::Vector{UInt8}; max_pixels::Int=64*1024*1024,
                 pos += 1
                 blockSize != 11 && _gifFail()
                 pos + blockSize - 1 > n && _gifFail()
+                application = String(data[pos:pos+blockSize-1])
                 pos += blockSize
+                if application in ("NETSCAPE2.0","ANIMEXTS1.0") &&
+                   pos + 3 <= n && data[pos] == 3 && data[pos+1] == 1
+                    loop_count = gifRead16(data,pos+2)
+                end
                 skipSubBlocks()
             else
                 throw(ArgumentError(
@@ -387,7 +400,7 @@ function decodeGIF(data::Vector{UInt8}; max_pixels::Int=64*1024*1024,
     end
 
     isempty(frames) && _gifFail("no image frames")
-    return Gif(frames, intervals, duration)
+    return Gif(frames, intervals, duration, disposals, loop_count)
 end
 
 """Upstream `decodeGifDimensions`: header only (10 bytes minimum)."""

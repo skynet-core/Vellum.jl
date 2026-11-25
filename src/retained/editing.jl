@@ -31,9 +31,9 @@ function edit_layer!(callback, edit::CanvasEdit, id::Integer)
     old = find_node(edit.nodes.root,id)
     group = old.operation
     group isa CompositeGroup || model_error(:invalid_input,"node is not a layer")
-    child = child_edit(edit,group.nodes)
+    child = child_edit(edit,group.nodes,old.id)
     try
-        result = callback(child)
+        result = with_child_edit(callback,child)
         isempty(child.stack) || model_error(:invalid_state,"unbalanced layer state")
         operation = CompositeGroup(SceneNodes(child.nodes.root),group.opacity,group.blend,group.effect)
         previous = get(edit.child_changes,old.id,())

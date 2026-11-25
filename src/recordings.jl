@@ -1,4 +1,4 @@
-# ---------- recording (T024; contract: docs/RECORDING.md, D030) ----------
+# ---------- recording and replay ----------
 #
 # New capability (no upstream reference — D011 reserved the
 # Picture/PictureRecorder seam). The display list records core-kernel
@@ -46,12 +46,13 @@ struct StrokeOp <: PicOp
     dashes::Vector{Float32}
 end
 
-"""clearRect lowering: zero-alpha Overwrite fill of `r` under `T * tform`
-(no globalAlpha/clip wrapper — the raster clearRect has none either)."""
+"""Erase `r` under the recorded transform and clipping region."""
 struct ClearOp <: PicOp
     r::Rect
     tform::Mat3
+    clips::Vector{PicClip}
 end
+ClearOp(r::Rect,tform::Mat3) = ClearOp(r,tform,PicClip[])
 
 """drawImage lowering: ImagePaint fill of the dest rect `r`; `imageMat` is
 the picture-space matrix the Context computes (ctx.mat * translate *
@@ -101,10 +102,7 @@ end
 
 # ---------- recording context ----------
 
-"""Saved recording state (mirror of `ContextState`, minus pixel buffers):
-plain `save` stores layerDepth 0 (exits any open layer on restore, as the
-raster's `state.layer = nothing` does); `saveLayer` stores the parent
-depth. All text state, including textBaseline, is saved."""
+"""Saved recording state, including the layer depth at the time of the save."""
 struct RecState
     fillStyle::SomePaint
     strokeStyle::SomePaint
@@ -264,7 +262,7 @@ end
 
 # ---------- state ----------
 
-function _recState(rctx::RecordingContext; layerDepth::Int = 0)
+function _recState(rctx::RecordingContext; layerDepth::Int = rctx.layer)
     return RecState(
         rctx.fillStyle, rctx.strokeStyle, rctx.globalAlpha,
         rctx.lineWidth, rctx.miterLimit, rctx.lineCap, rctx.lineJoin,
@@ -298,17 +296,15 @@ function saveLayer(rctx::RecordingContext)
     return nothing
 end
 
-"""Mirror of `Context.restore`: close the group scope when one is open
-(poppedLayer !== nothing), then restore the saved state — including
-exiting the layer for plain-save states (layerDepth 0)."""
+"""Restore the saved state and close the group opened by a matching layer save."""
 function restore(rctx::RecordingContext)
     _recCheck(rctx)
     isempty(rctx.stateStack) &&
         throw(ArgumentError("restore() with no saved state"))
-    if rctx.layer > 0
+    state = pop!(rctx.stateStack)
+    if rctx.layer > state.layerDepth
         _recEnd(rctx)
     end
-    state = pop!(rctx.stateStack)
     rctx.fillStyle = state.fillStyle
     rctx.strokeStyle = state.strokeStyle
     rctx.globalAlpha = state.globalAlpha
@@ -654,11 +650,10 @@ function strokeSegment(rctx::RecordingContext, ax::Real, ay::Real, bx::Real,
     return nothing
 end
 
-"""Erase the rect (mirror of Context.clearRect — no clip/globalAlpha
-wrappers, as in the raster)."""
+"""Record a clipped rectangle erase using the current transform."""
 function clearRect(rctx::RecordingContext, r::Rect)
     _recCheck(rctx)
-    push!(rctx.ops, ClearOp(r, rctx.mat))
+    push!(rctx.ops, ClearOp(r, rctx.mat, copy(rctx.clips)))
     return nothing
 end
 function clearRect(rctx::RecordingContext, x::Float32, y::Float32,
@@ -876,6 +871,16 @@ function _replayPaint(paint::Paint, canvas::Mat3)
     result
 end
 
+function _pictureMask(clips,canvas,width,height)
+    isempty(clips) && return nothing
+    mask = newImage(width,height)
+    for (i,c) in enumerate(clips)
+        paint = Paint(rgba(255,255,255,255); blendMode=i == 1 ? OverwriteBlend : MaskBlend)
+        fillPath(mask,c.path,paint;transform=canvas*c.transform,windingRule=c.windingRule)
+    end
+    return mask
+end
+
 function drawPicture(image::Image, picture::Picture; tform::Mat3 = mat3())
     sx = Float32(image.width) / Float32(picture.size.x)
     sy = Float32(image.height) / Float32(picture.size.y)
@@ -892,12 +897,8 @@ function drawPicture(image::Image, picture::Picture; tform::Mat3 = mat3())
                 lineCap = op.cap, lineJoin = op.join, miterLimit =
                 op.miterLimit, dashes = op.dashes)
         elseif op isa ClearOp
-            p = newPath()
-            rect(p, op.r)
-            fillPath(stack[end], p,
-                Paint(ColorRGBA(0x00, 0x00, 0x00, 0x00);
-                    blendMode = OverwriteBlend),
-                transform = canvas * op.tform)
+            mask = _pictureMask(op.clips,canvas,image.width,image.height)
+            _clearRect!(stack[end],op.r,canvas*op.tform,mask)
         elseif op isa DrawImageOp
             p = newPath()
             rect(p, op.r)
@@ -913,17 +914,8 @@ function drawPicture(image::Image, picture::Picture; tform::Mat3 = mat3())
             if opa != Float32(1)
                 applyOpacity(scratch, opa)
             end
-            if !isempty(op.clips)
-                mask = newImage(scratch.width, scratch.height)
-                for (i, c) in enumerate(op.clips)
-                    paint = i == 1 ?
-                        Paint(rgba(0xff, 0xff, 0xff, 0xff);
-                            blendMode = OverwriteBlend) :
-                        Paint(rgba(0xff, 0xff, 0xff, 0xff);
-                            blendMode = MaskBlend)
-                    fillPath(mask, c.path, paint,
-                        transform = canvas * c.transform, windingRule = c.windingRule)
-                end
+            mask = _pictureMask(op.clips,canvas,image.width,image.height)
+            if mask !== nothing
                 draw(scratch, mask; blendMode = MaskBlend)
             end
             draw(stack[end], scratch)

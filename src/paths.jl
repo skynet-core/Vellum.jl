@@ -7,11 +7,10 @@
 # endpointToCenterArcParams), computeBounds.
 # Rasterization (segment/partsition/coverage/fill) lives in src/rasterizer.jl.
 #
-# Path failures raise ArgumentError (upstream PixieError; the exception
-# mapping is fixed by docs/API.md: bad arguments -> ArgumentError).
+# Malformed paths raise ArgumentError.
 # Coordinates are continuous, 0-based, y-down, Float32 (D011); upstream
 # rounding (ties away from zero, e.g. `ceil`) uses the module-level
-# `roundHalfAway` from src/Vetra.jl instead of Base round (ties to even).
+# `roundHalfAway` from src/Vellum.jl instead of Base round (ties to even).
 # Not ported here: Path's `$` string formatter, strokeShapes/strokePath,
 # fillOverlaps/strokeOverlaps, and the Paint branch of fillPath -- all
 # belong to later tasks (T005/T007/T010) per the task split.

@@ -1,6 +1,6 @@
 # ---------- color matrix interop (T015, D024) ----------
-# Boundary conversions between Vetra's premultiplied `Image` and standard
-# Julia color matrices (ColorTypes `RGB`/`RGBA`, opt-in per D024):
+# Boundary conversions between Vellum's premultiplied `Image` and standard
+# Julia color matrices (ColorTypes `RGB`/`RGBA`, loaded on demand):
 # - export `toColors`: stored premultiplied -> straight `RGBA{N0f8}` via
 #   `toStraightAlpha` (the same boundary as PNG export, so the matrix bytes
 #   equal the PNG payload bytes, [y, x] indexing);
@@ -8,26 +8,12 @@
 #   (N0f8 bytes or 0..1 floats, clamped) -> premultiplied via `rgbx`
 #   (the same boundary as PNG decode).
 #
-# ColorTypes is opt-in (D024): `Vetra.__init__` loads it when available in
-# the active environment; a missing package makes the entry points raise an
-# install hint on use, as with the other codecs (D014/D019).
 
 const _COLORTYPES_PKGID = Base.PkgId(
     Base.UUID("3da002f7-5984-5a60-b8a6-cbb66c0b333f"), "ColorTypes")
 
-"""
-The `ColorTypes` module, loaded on first use (lazy discovery, D028), or a
-clear install hint (D024). Environments without ColorTypes load normally
-and get this error only on use.
-"""
-function _requireColorTypes()
-    if Base.locate_package(_COLORTYPES_PKGID) === nothing
-        throw(ErrorException(
-            "Color-matrix interop is opt-in: add the ColorTypes package to " *
-            "your environment (Pkg.add(\"ColorTypes\")) and retry"))
-    end
-    return Base.require(_COLORTYPES_PKGID)
-end
+"""Load the packaged ColorTypes dependency on first use."""
+_requireColorTypes() = Base.require(_COLORTYPES_PKGID)
 
 """
 Export `image` as a `Matrix{RGBA{N0f8}}` of straight-alpha colors, indexed

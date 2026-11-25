@@ -1,7 +1,7 @@
 module Wire
-import Vetra
+import Vellum
 using SHA
-const V = Vetra
+const V = Vellum
 
 export Snapshot, encode_snapshot, decode_snapshot, encode_delta, apply_delta
 export fork_canvas

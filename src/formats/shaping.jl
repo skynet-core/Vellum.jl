@@ -1,4 +1,4 @@
-# ---------- T029: optional Unicode shaping and bidi (D033, docs/TEXT_LAYOUT.md §5) ----------
+# ---------- Unicode shaping and bidirectional text ----------
 #
 # Provider: HarfBuzz_jll — a thin ccall surface over the harfbuzz C API
 # (blob → face → font → buffer → hb_shape). Loaded lazily on first use
@@ -25,8 +25,8 @@
 # accordingly). Placement below uses the pen formulas per direction.
 #
 # Vendored Unicode 16.0.0 tables (BMP subset — same provenance protocol
-# as the UAX#29 cluster tables in paragraph.jl, docs/TEXT_LAYOUT.md
-# §3.2/§5.4/§9; generated, do not edit by hand):
+# as the UAX#29 cluster tables in paragraph.jl;
+# generated tables):
 #   _HB_SCRIPT_RANGES: Script property (Scripts.txt, primary script),
 #     (start, stop, UAX#24 4-byte tag) triples, ascending by start.
 #   _HB_BIDI_RANGES:   Bidi_Category (UnicodeData.txt field 5),
@@ -37,7 +37,7 @@
 #   _HB_MIRROR_PAIRS:  Bidi_Mirroring (BidiMirroring.txt),
 #     (codepoint, mirror) pairs, ascending by codepoint.
 
-"""A shaped glyph (docs/TEXT_LAYOUT.md §5.1): font GID plus font-unit
+"""A shaped glyph: font GID plus font-unit
 metrics as reported by the shaper (advance/offsets scale like
 `getAdvance`; multiply by `scale(font)` for pixels)."""
 struct ShapedGlyph
@@ -83,18 +83,11 @@ function _hbDestroyTriple(st)
     return nothing
 end
 
-"""HarfBuzz provider state, loaded on first use (lazy discovery, D028),
-or a clear install hint (D033). Environments without HarfBuzz_jll load
-normally and get the error only when shaping is engaged."""
+"""Load the packaged HarfBuzz provider on first use."""
 function _requireHarfBuzz()
     lock(_HB_POOL.guard) do
     global _HB_FUNCS
     _HB_FUNCS !== nothing && return
-    if Base.locate_package(_HB_PKGID) === nothing
-        throw(ErrorException(
-            "Shaping support is opt-in: add the HarfBuzz_jll package to " *
-            "your environment (Pkg.add(\"HarfBuzz_jll\")) and retry"))
-    end
     m = Base.require(_HB_PKGID)
     path = Base.invokelatest(_hbLibPath, m)
     # Libdl diagnostics name the path/symbol and the OS cause; let them
@@ -358,7 +351,7 @@ end
 shapeText(tf, codepoints; script = nothing, direction = LeftToRight,
 language = nothing)
 
-Shaper interface (docs/TEXT_LAYOUT.md §5.1): consumes `tf`'s raw font
+Shaper interface: consumes `tf`'s raw font
 bytes plus one run's codepoints, a script, language, and direction;
 returns `Vector{Vector{ShapedGlyph}}` — one entry per cluster in
 **logical cluster order** (ascending cluster id; harfbuzz's buffer is
@@ -436,12 +429,10 @@ function glyphPathByGid(tf::Typeface, gid::Int)
 end
 
 # ---------- generated tables (Unicode 16.0.0, BMP subset) ----------
-# Provenance: https://unicode.org/Public/16.0.0/ucd/ —
+# Provenance: https://www.unicode.org/Public/16.0.0/ucd/ —
 #   Scripts.txt (primary script), UnicodeData.txt field 5
 #   (Bidi_Category), BidiMirroring.txt. UAX#24 tags matched case-
 #   insensitively against harfbuzz 15.1.0's hb-script-list.h.
-# Regeneration: tools/oracle/gen_hb_tables.py (the tables are checked by
-# test/shaping_tests.jl against the pinned reference — §3.2 protocol).
 
 const _HB_SCRIPT_RANGES = UInt32[
     0x0000, 0x0040, 0x5a797979, 0x0041, 0x005a, 0x4c61746e,

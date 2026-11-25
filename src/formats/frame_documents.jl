@@ -4,8 +4,8 @@ const DOCUMENT_MAX_SIDE = 1 << 24
 """Per-run outline command limit for captured text in a vector document."""
 const DOCUMENT_TEXT_COMMANDS = 65_536
 
-"""One export's owned crop storage, keyed by the image revision and integer pixel bounds."""
-const DocumentCrops = Dict{Tuple{ResourceRef,NTuple{4,Int}},Image}
+"""Owned crops shared across an export, keyed by the immutable image payload and integer pixel bounds."""
+const DocumentCrops = IdDict{ImageData,Dict{NTuple{4,Int},Image}}
 
 """Maximum total prepared vertices for one isolated document raster patch."""
 const DOCUMENT_RASTER_VERTICES = 65_536
@@ -82,7 +82,7 @@ end
 
 Re-express the gradient's scalar projection as two canvas-space handles.
 This preserves its sampled parameter under local or canvas-space affine
-maps, including skew. The common vector profile requires opaque sRGB
+maps, including skew. The common vector profile preserves sRGB and alpha
 stops with strictly increasing Float32 offsets and finite, distinct handles.
 Unsupported values raise `CapabilityError` on the owning node.
 """
@@ -91,8 +91,7 @@ function _document_paint(paint::LinearGradient, state::DrawingState, node::UInt6
     previous = -Inf32
     for stop in paint.stops
         position = Float32(stop.position)
-        stop.color.channels[4] == 1 && position > previous ||
-            throw(CapabilityError(node, :document_opaque_ordered_stops))
+        position > previous || throw(CapabilityError(node, :document_ordered_stops))
         push!(result.gradientStops, ColorStop(_document_color(stop.color, node), position))
         previous = position
     end
@@ -176,7 +175,8 @@ function _document_image(operation::ImageRegion, frame::Frame, node::UInt64, mat
     mapping = Transform2D(scale_x, 0, 0, scale_y,
         x + (left - sx) * scale_x, y + (top - sy) * scale_y)
     image_matrix = _document_matrix(operation.state.transform * mapping, node)
-    crop = get!(crops, (operation.image, (left, top, right, bottom))) do
+    regions = get!(() -> Dict{NTuple{4,Int},Image}(),crops,source)
+    crop = get!(regions, (left, top, right, bottom)) do
         image = newImage(right - left, bottom - top)
         pixels = codeunits(source.pixels.bytes)
         row_bytes = 4 * image.width
@@ -394,13 +394,13 @@ Build an owned document and its fallback report from a version-one snapshot. Who
 logical dimensions must fit exactly in Float32. Invalid dimensions or an
 unsupported schema raise `ArgumentError`; node diagnostics propagate.
 """
-function _document_picture(frame::Frame, policy::RenderPolicy)
+function _document_picture(frame::Frame, policy::RenderPolicy, crops=DocumentCrops())
     frame.schema_version == 1 || throw(ArgumentError("unsupported document frame schema"))
     all(side -> isinteger(side) && 0 < side <= DOCUMENT_MAX_SIDE, frame.size) ||
         throw(ArgumentError("document dimensions must be positive whole logical units"))
     operations = PicOp[]
     rasterize = policy.mode === :allow_rasterization
-    _document_operations!(operations, frame.nodes, frame, DocumentCrops(), rasterize)
+    _document_operations!(operations, frame.nodes, frame, crops, rasterize)
     report = rasterize ? _document_rasterize!(operations, frame, policy) : ()
     return Picture(operations, Vec2(Float32.(frame.size)...)), report
 end

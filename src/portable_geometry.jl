@@ -1,6 +1,6 @@
 """Renderer-independent, bounded preparation of the portable semantic model."""
 module PortableGeometry
-using ..Vetra: PathData, Transform2D, StrokeStyle, PaintDescriptor, Solid,
+using ..Vellum: PathData, Transform2D, StrokeStyle, PaintDescriptor, Solid,
     LinearGradient, Color, FillPath, StrokePath, logical, option, model_error
 
 export flatten, lower_fill, lower_stroke, lower_geometry, contains, paint_color,
@@ -15,10 +15,24 @@ cross(a,b) = logical(a[1]*b[2]-a[2]*b[1])
 distance(a,b) = logical(hypot(sub(a,b)...))
 mid(a,b) = (a[1]/2+b[1]/2,a[2]/2+b[2]/2)
 
+"""Immutable polygon points, closure flag and their exact axis-aligned bounds."""
 struct Contour
     points::Tuple{Vararg{Point}}
     closed::Bool
+    bounds::NTuple{4,Float64}
+    function Contour(points::Tuple{Vararg{Point}},closed::Bool)
+        @nospecialize points
+        xmin,ymin,xmax,ymax = Inf,Inf,-Inf,-Inf
+        for (x,y) in points
+            xmin,ymin = min(xmin,x),min(ymin,y)
+            xmax,ymax = max(xmax,x),max(ymax,y)
+        end
+        new(points,closed,(xmin,ymin,xmax,ymax))
+    end
 end
+
+"""Convert compatible coordinate and flag values to the contour's storage types."""
+Contour(points,closed) = Contour(convert(Tuple{Vararg{Point}},points),convert(Bool,closed))
 
 mutable struct Budget
     remaining::Int

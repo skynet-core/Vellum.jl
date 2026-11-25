@@ -1,13 +1,13 @@
 """
-Render bounded Vetra vector frames on a Linux OpenGL device. Completed
-textures can also be drawn into a host-owned desktop EGL drawable.
-Importing this module loads no graphics driver. Supply a separately built
-native bridge and an exact PCI selector when constructing a backend.
+Render Vellum vector frames on a desktop OpenGL device. `DesktopBackend`
+owns an offscreen GLX context. The extended legacy adapter accepts a native
+bridge and PCI selector and can present textures in a host-owned EGL drawable.
+Importing this module defers graphics driver loading until a native request.
 """
 module OpenGLBackend
 
 import Libdl
-import ..Vetra
+import ..Vellum
 
 include("raster_assets.jl")
 include("tiled_raster.jl")
@@ -104,18 +104,18 @@ on a compatible bridge.
 The selector reads the library's physical profile without opening a GPU
 device. The constructor throws `ArgumentError` for invalid arguments.
 """
-mutable struct NativeBackend{Transport} <: Vetra.Backend
+mutable struct NativeBackend{Transport} <: Vellum.Backend
     library::String
     vendor::UInt32
     product::UInt32
     owner::Int
-    raster_registry::Union{Nothing,Vetra.ImageTiles.AbstractRasterResolver}
+    raster_registry::Union{Nothing,Vellum.ImageTiles.AbstractRasterResolver}
     extent::NTuple{2,Int}
     source_pool::Symbol
     blur_radius::Int
 
     function NativeBackend{Transport}(library::AbstractString, vendor::Integer, product::Integer;
-        raster_registry::Union{Nothing,Vetra.ImageTiles.AbstractRasterResolver}=nothing,
+        raster_registry::Union{Nothing,Vellum.ImageTiles.AbstractRasterResolver}=nothing,
         source_pool::Symbol=:standard) where Transport
         Transport in (:opengl, :vulkan) || throw(ArgumentError("unknown native vector transport"))
         Sys.islinux() || throw(ArgumentError("the offscreen native vector adapter requires Linux"))
@@ -164,9 +164,9 @@ include("async_source.jl")
 Track one native submission and the immutable Frame staged for it. The
 owning surface keeps the token until completion, cancellation or failure.
 """
-mutable struct Token{S} <: Vetra.Submission
+mutable struct Token{S} <: Vellum.Submission
     surface::S
-    frame::Vetra.Frame
+    frame::Vellum.Frame
     assets::RasterPages.Resident
     value::UInt64
     state::Symbol
@@ -183,11 +183,11 @@ bounded cache of physical geometry from the latest submitted packet.
 Each surface keeps private owner-thread packing scratch until native
 teardown succeeds.
 """
-mutable struct NativeSurface{B<:NativeBackend} <: Vetra.Surface
+mutable struct NativeSurface{B<:NativeBackend} <: Vellum.Surface
     backend::B
     size::NTuple{2,Int}
     session::Union{Nothing,Session}
-    committed::Union{Nothing,Vetra.Frame}
+    committed::Union{Nothing,Vellum.Frame}
     assets::RasterPages.Resident
     shapes::FrameCurves.ShapeCache
     """Exclusive intermediate tables for synchronous native submissions."""
@@ -228,16 +228,16 @@ function next_epoch()
 end
 
 """
-    Vetra.capabilities(backend::NativeBackend) -> Vetra.Capabilities
+    Vellum.capabilities(backend::NativeBackend) -> Vellum.Capabilities
 
 Return the vector, raster and text capability set. A configured resolver
 adds paged sources and their admitted storage formats. `target_extent`
 reports the separately negotiated maximum physical target.
 """
-function Vetra.capabilities(backend::NativeBackend)
+function Vellum.capabilities(backend::NativeBackend)
     backend.raster_registry === nothing &&
-        return Vetra.Capabilities(features=FEATURES,max_image_size=target_extent(backend))
-    return Vetra.Capabilities(features=(FEATURES...,:image_provider_revision_v1,
+        return Vellum.Capabilities(features=FEATURES,max_image_size=target_extent(backend))
+    return Vellum.Capabilities(features=(FEATURES...,:image_provider_revision_v1,
         Symbol("image_storage.tiled"),:linear_srgb_image),formats=(:rgba8,:bgra8,:rgb8,:bgr8,:gray8),
         max_image_size=(RasterPages.SOURCE_SIDE,RasterPages.SOURCE_SIDE))
 end
@@ -269,10 +269,10 @@ deferred glyphs, ordered fallback faces, or overbudget runs or nesting.
 function validate_nodes(nodes, depth::Int=0)
     for node in nodes
         operation = node.operation
-        if operation isa Vetra.TextRun
+        if operation isa Vellum.TextRun
             0 < length(operation.glyphs) <= 32 && isempty(operation.fallback_fonts) ||
                 throw(ArgumentError("capture up to 32 glyphs from one face"))
-        elseif operation isa Vetra.CompositeGroup
+        elseif operation isa Vellum.CompositeGroup
             depth < 2 || throw(ArgumentError("Native group depth exceeds two"))
             validate_nodes(operation.nodes, depth + 1)
         end
@@ -281,25 +281,25 @@ function validate_nodes(nodes, depth::Int=0)
 end
 
 """
-    Vetra.prepare_retention(backend::NativeBackend, frame) -> nothing
+    Vellum.prepare_retention(backend::NativeBackend, frame) -> nothing
 
 Validate frame revision and resource count from any Julia thread. The prepared Frame
 owns its font and dense image bytes. For tiled sources, return exact pins
 from the configured revision resolver. Unsupported resources or unavailable
 revisions raise before acquiring a native target.
 """
-function Vetra.prepare_retention(backend::NativeBackend, frame::Vetra.Frame)
+function Vellum.prepare_retention(backend::NativeBackend, frame::Vellum.Frame)
     0 < frame.revision <= 2^48 && length(frame.nodes) <= FrameCurves.MAX_COMMANDS ||
         throw(ArgumentError("frame revision or count is outside the native vector profile"))
     length(frame.resources) <= 16 &&
-        all(record -> record.payload isa Union{Vetra.FontData,Vetra.ImageData,Vetra.RasterReference},frame.resources) ||
+        all(record -> record.payload isa Union{Vellum.FontData,Vellum.ImageData,Vellum.RasterReference},frame.resources) ||
         throw(ArgumentError("a maximum of 16 font and image resources are supported"))
     validate_nodes(frame.nodes)
     BoxBlurPlan.validate(frame.nodes)
-    any(record -> record.payload isa Vetra.RasterReference,frame.resources) || return nothing
+    any(record -> record.payload isa Vellum.RasterReference,frame.resources) || return nothing
     registry = backend.raster_registry
-    registry === nothing && Vetra.model_error(:resource_unavailable,"GPU renderer has no raster resolver")
-    return Vetra.ImageTiles.retain_frame(registry,frame)
+    registry === nothing && Vellum.model_error(:resource_unavailable,"GPU renderer has no raster resolver")
+    return Vellum.ImageTiles.retain_frame(registry,frame)
 end
 
 """
@@ -313,14 +313,14 @@ bounds coordinates and estimated shader work.
 An optional exclusive `workspace` reuses intermediate tables. The returned
 packet owns its words.
 """
-function pack_vectors(frame::Vetra.Frame,size::NTuple{2,Int},dense,resident,halo;
+function pack_vectors(frame::Vellum.Frame,size::NTuple{2,Int},dense,resident,halo;
                       streamed=false,layered=false,shared=nothing,shapes=FrameCurves.EMPTY_SHAPES,
                       workspace=nothing)
     resolved = workspace === nothing ? Int[] : workspace.page_slots
     width, height = size
     1 <= width <= MAX_EXTENT[1] && 1 <= height <= MAX_EXTENT[2] ||
         throw(ArgumentError("invalid physical target size"))
-    viewport = Vetra.Transform2D(width/frame.size[1],0,0,height/frame.size[2])
+    viewport = Vellum.Transform2D(width/frame.size[1],0,0,height/frame.size[2])
     capacity = streamed ? (layered ? RasterPages.LAYER_ACTIVE : RasterPages.STREAM_ACTIVE) : RasterPages.page_capacity(size)
     data = workspace === nothing ? FrameCurves.Packing(capacity,shared,shapes) :
         FrameCurves.Packing(workspace,capacity,shared,shapes)
@@ -357,7 +357,7 @@ Invalid geometry or exceeded limits throw before pixel-region reads.
 Use a `workspace` for one pack at a time. Packing resets it at the start
 of each call. Each output owns its words and shape cache.
 """
-function pack_frame(frame::Vetra.Frame,size,resident::RasterPages.Resident=RasterPages.EMPTY;
+function pack_frame(frame::Vellum.Frame,size,resident::RasterPages.Resident=RasterPages.EMPTY;
                     streamed=false,layered=false,shared=nothing,
                     shapes=streamed ? nothing : FrameCurves.EMPTY_SHAPES,blur_radius=BoxBlurPlan.LEGACY_RADIUS,
                     workspace=nothing)
@@ -372,22 +372,22 @@ function pack_frame(frame::Vetra.Frame,size,resident::RasterPages.Resident=Raste
 end
 
 """
-    pack_frame(plan::Vetra.PreparedFrame, size, [resident]; streamed=false, layered=false, shapes, blur_radius, workspace=nothing)
+    pack_frame(plan::Vellum.PreparedFrame, size, [resident]; streamed=false, layered=false, shapes, blur_radius, workspace=nothing)
 
 Keep exact execution pins while lowering the frame's optional validated
 sparse page indices. Close the pins after packing, including on failure.
 Generic or unindexed providers keep per-revision cache keys.
 Optional exclusive `workspace` has the same ownership and limits as the Frame overload.
 """
-function pack_frame(plan::Vetra.PreparedFrame,size,resident::RasterPages.Resident=RasterPages.EMPTY;
+function pack_frame(plan::Vellum.PreparedFrame,size,resident::RasterPages.Resident=RasterPages.EMPTY;
                      streamed=false,layered=false,shapes=streamed ? nothing : FrameCurves.EMPTY_SHAPES,
                      blur_radius=BoxBlurPlan.LEGACY_RADIUS,workspace=nothing)
     try
-        plan.retention isa Vetra.ImageTiles.RevisionLease ||
+        plan.retention isa Vellum.ImageTiles.RevisionLease ||
             return pack_frame(plan.frame,size,resident;streamed,layered,shapes,blur_radius,workspace)
-        pins = Vetra.execution_retention(plan)
+        pins = Vellum.execution_retention(plan)
         try
-            shared = Vetra.ImageTiles.shared_tile_sources(pins,RasterPages.SIDE)
+            shared = Vellum.ImageTiles.shared_tile_sources(pins,RasterPages.SIDE)
             return pack_frame(plan.frame,size,resident;streamed,layered,shared,shapes,blur_radius,workspace)
         finally
             close(pins)
@@ -399,15 +399,15 @@ function pack_frame(plan::Vetra.PreparedFrame,size,resident::RasterPages.Residen
 end
 
 """
-    Vetra.make_surface(backend::NativeBackend, size) -> Surface
+    Vellum.make_surface(backend::NativeBackend, size) -> Surface
 
 Create a logical target for a physical pixel extent. Throws for wrong
 thread or invalid extents. Initial execute opens the
 device so failed plans cannot reserve a native slot.
 """
-function Vetra.make_surface(backend::NativeBackend, size)
+function Vellum.make_surface(backend::NativeBackend, size)
     require_owner(backend)
-    dimensions = Vetra.checked_dimensions(size...)
+    dimensions = Vellum.checked_dimensions(size...)
     all(dimensions .<= target_extent(backend)) ||
         throw(ArgumentError("Native target exceeds maximum extent"))
     return NativeSurface(backend,dimensions,nothing,nothing,RasterPages.EMPTY,FrameCurves.EMPTY_SHAPES,
@@ -421,7 +421,7 @@ end
 Require an owner-thread, open logical target and a plan for the same
 backend. Violations raise `ArgumentError` before packing or native work.
 """
-function require_plan(backend::NativeBackend, surface::NativeSurface, plan::Vetra.PreparedFrame)
+function require_plan(backend::NativeBackend, surface::NativeSurface, plan::Vellum.PreparedFrame)
     require_owner(backend)
     surface.backend === backend && plan.backend === backend && !surface.closed && !surface.preparing ||
         throw(ArgumentError("closed or preparing surface, or foreign backend"))
@@ -548,7 +548,7 @@ Pack the first frame and open the native target, forwarding an optional
 host-window binding. Publish the frame and resident asset slots only
 after startup finishes. Planning and native errors propagate.
 """
-function initialize!(surface::NativeSurface,backend::NativeBackend,plan::Vetra.PreparedFrame;host...)
+function initialize!(surface::NativeSurface,backend::NativeBackend,plan::Vellum.PreparedFrame;host...)
     surface.preparing = true
     try
         if backend.source_pool !== :standard
@@ -616,9 +616,9 @@ calls and close the result before destroying them. Enter with valid GL state
 and without active transform feedback. The application owns the event loop.
 Invalid frames, wrong-thread use and unsupported contexts throw.
 """
-function window_surface(frame::Vetra.Frame, backend::Backend; size=frame.size)
-    surface = Vetra.make_surface(backend,size)
-    plan = Vetra.prepare(backend,frame)
+function window_surface(frame::Vellum.Frame, backend::Backend; size=frame.size)
+    surface = Vellum.make_surface(backend,size)
+    plan = Vellum.prepare(backend,frame)
     try
         require_plan(backend,surface,plan)
         return initialize!(surface,backend,plan;current_context=true)
@@ -680,36 +680,36 @@ function window_statistics(surface::Surface)
 end
 
 """
-    Vetra.execute!(backend::NativeBackend, surface::NativeSurface, plan) -> Surface
+    Vellum.execute!(backend::NativeBackend, surface::NativeSurface, plan) -> Surface
 
 Render the initial Frame or block for a subsequent accepted revision.
 Reuses the initialized target and never captures pixels. Errors from
 admission, ownership, or device work propagate. A timed-out edit remains
 owned by the target until it is drained.
 """
-function Vetra.execute!(backend::NativeBackend, surface::NativeSurface, plan::Vetra.PreparedFrame)
+function Vellum.execute!(backend::NativeBackend, surface::NativeSurface, plan::Vellum.PreparedFrame)
     require_plan(backend,surface,plan)
     if surface.session === nothing
         initialize!(surface,backend,plan)
     else
-        wait(Vetra.submit!(backend,surface,plan))
+        wait(Vellum.submit!(backend,surface,plan))
     end
     return surface
 end
 
 """
-    Vetra.submit!(backend::NativeBackend, surface::NativeSurface, plan) -> Token
+    Vellum.submit!(backend::NativeBackend, surface::NativeSurface, plan) -> Token
 
 Queue one new Frame on an initialized target. The frame must be the exact
 next revision of the same logical Canvas. Throws for busy, quarantined,
 foreign or out-of-profile work. The prior frame remains committed while
 the token owns the staged frame and fence.
 """
-function Vetra.submit!(backend::NativeBackend,surface::NativeSurface,plan::Vetra.PreparedFrame)
+function Vellum.submit!(backend::NativeBackend,surface::NativeSurface,plan::Vellum.PreparedFrame)
     require_plan(backend,surface,plan)
     require_session(surface)
     surface.valid && surface.item === nothing || throw(ArgumentError("target is busy or quarantined"))
-    before = surface.committed::Vetra.Frame
+    before = surface.committed::Vellum.Frame
     after = plan.frame
     after.canvas === before.canvas && after.revision == before.revision+1 ||
         throw(ArgumentError("expected a consecutive revision of the same Canvas"))
@@ -777,12 +777,12 @@ unsubmitted preparation. A foreign or outdated frame, a closed surface, or
 an unavailable worker pool raises `ArgumentError`. The streamed 8K profile
 uses synchronous bounded submission and rejects background requests.
 """
-function request_frame!(surface::NativeSurface,frame::Vetra.Frame)
+function request_frame!(surface::NativeSurface,frame::Vellum.Frame)
     require_session(surface)
     surface.backend.source_pool === :standard || throw(ArgumentError("use synchronous submit! for the streamed source pool"))
     surface.valid && !surface.preparing || throw(ArgumentError("surface cannot accept source work"))
     item = surface.item
-    base = item === nothing ? surface.committed::Vetra.Frame : item.frame
+    base = item === nothing ? surface.committed::Vellum.Frame : item.frame
     frame.canvas === base.canvas && frame.revision > base.revision ||
         throw(ArgumentError("expected a newer revision of this Canvas"))
     if surface.sources === nothing
@@ -793,7 +793,7 @@ function request_frame!(surface::NativeSurface,frame::Vetra.Frame)
 end
 
 """
-    Vetra.submit!(backend, surface, ticket::Preparation) -> Union{Nothing,Token}
+    Vellum.submit!(backend, surface, ticket::Preparation) -> Union{Nothing,Token}
 
 Offer a prepared snapshot on the GPU owner thread. Return `nothing` while
 its worker or the previous native fence is pending. A ready snapshot uses
@@ -801,12 +801,12 @@ the exact completed base and yields a normal GPU token. Superseded, failed,
 foreign or consumed work raises. A temporarily noncurrent OpenGL context
 leaves a ready ticket available for retry after restoring its context.
 """
-function Vetra.submit!(backend::NativeBackend,surface::NativeSurface,ticket::Preparation)
+function Vellum.submit!(backend::NativeBackend,surface::NativeSurface,ticket::Preparation)
     require_session(surface)
     surface.backend === backend && surface.sources === ticket.queue && surface.valid && !surface.preparing ||
         throw(ArgumentError("foreign preparation or unavailable surface"))
     surface.item === nothing || return nothing
-    base = (surface.committed::Vetra.Frame).revision
+    base = (surface.committed::Vellum.Frame).revision
     result = claim_source!(ticket,base)
     result === nothing && return nothing
     try
@@ -868,13 +868,13 @@ function advance!(item::Token, timeout_ns::UInt64)
 end
 
 """
-    Vetra.completed(item::Token) -> Bool
+    Vellum.completed(item::Token) -> Bool
 
 Poll a pending fence with no wait and publish only on success. Return
 false for pending, failed or cancelled tokens. Throws on wrong-thread
 access or driver errors during the poll.
 """
-function Vetra.completed(item::Token)
+function Vellum.completed(item::Token)
     require_owner(item.surface.backend)
     item.state === :pending && return advance!(item,UInt64(0))
     return item.state === :complete
@@ -896,13 +896,13 @@ function Base.wait(item::Token)
 end
 
 """
-    Vetra.cancel!(item::Token) -> nothing
+    Vellum.cancel!(item::Token) -> nothing
 
 Quarantine a pending frame and retain its native fence for teardown. A
 second cancellation is harmless. Throws for foreign and completed tokens,
 wrong-thread operations, and native errors.
 """
-function Vetra.cancel!(item::Token)
+function Vellum.cancel!(item::Token)
     surface = item.surface
     require_owner(surface.backend)
     item.state === :cancelled && return nothing
@@ -918,7 +918,7 @@ function Vetra.cancel!(item::Token)
 end
 
 """
-    readback_native(surface::NativeSurface) -> Vetra.Image
+    readback_native(surface::NativeSurface) -> Vellum.Image
 
 Explicitly copy completed premultiplied RGBA8 pixels in top-left row
 order. Throws for pending, closed, or quarantined targets or driver
@@ -932,11 +932,14 @@ function readback_native(surface::NativeSurface)
         session.handle,output,length(output))
     require_context_status(status)
     status == 0 || error("native vector capture failed with status $status")
-    return Vetra.Image(surface.size...,output)
+    return Vellum.Image(surface.size...,output)
 end
 
 """Copy the completed OpenGL image through the shared tutorial capture interface."""
-Vetra.CPUBackend.pixels(surface::NativeSurface) = readback_native(surface)
+Vellum.CPUBackend.pixels(surface::NativeSurface) = readback_native(surface)
+
+"""Read a completed desktop OpenGL or Vulkan surface into independently owned host memory."""
+Vellum.readback(surface::NativeSurface) = readback_native(surface)
 
 """Copy a completed OpenGL surface into a detached premultiplied `Image`."""
 readback(surface::Surface) = readback_native(surface)
@@ -1006,5 +1009,6 @@ function Base.close(surface::NativeSurface)
 end
 
 include("vulkan_source_stream.jl")
+include("desktop.jl")
 
 end

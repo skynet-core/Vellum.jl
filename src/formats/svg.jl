@@ -12,7 +12,7 @@
 #   (a, b, 0, c, d, 0, e, f, 1) (x' = ax + cy + e, y' = bx + dy + f).
 # - The XML document model is a small `SvgNode` (tag/attrs/children). The
 #   `parseSvg(root)` entry point is pure core; `parseSvg(data::String)`
-#   builds the tree from the opt-in `XML` package (pixie's xmlparser/
+#   builds the tree from the `XML` package (pixie's xmlparser/
 #   xmltree are reference-only dependencies, per D008/D014).
 # - `defs` children are NOT recursed into (upstream `parseSvgElement` case
 #   "defs": no recursion) -- gradients must be direct children of `<g>` or
@@ -57,13 +57,21 @@ struct SvgLinearGradient
     stops::Vector{ColorStop}
 end
 
-"""Upstream `Svg`: parsed elements plus the gradient table."""
+"""Begin or finish an isolated opacity group before the indexed SVG element."""
+struct SvgGroupBoundary
+    index::Int
+    opacity::Union{Float32,Nothing}
+end
+
+"""Parsed elements, their compositing groups and the gradient table."""
 struct Svg
     width::Int
     height::Int
     elements::Vector{Tuple{Path,SvgProperties}}
     linearGradients::Dict{String,SvgLinearGradient}
+    groups::Vector{SvgGroupBoundary}
 end
+Svg(w,h,elements,gradients) = Svg(w,h,elements,gradients,SvgGroupBoundary[])
 
 function _svgFail()
     throw(ArgumentError("Invalid SVG data"))
@@ -356,7 +364,7 @@ skipped; `linearGradient` fills the gradient table.
 function parseSvgElement(
     node::SvgNode,
     gradients::Dict{String,SvgLinearGradient},
-    propertiesStack::Vector{SvgProperties}
+    propertiesStack::Vector{SvgProperties}, groups=nothing, offset=0
 )
     out = Vector{Tuple{Path,SvgProperties}}()
 
@@ -371,12 +379,7 @@ function parseSvgElement(
 
     if node.tag == "g"
         props = parseSvgProperties(node, propertiesStack[end])
-        push!(propertiesStack, props)
-        for child in node.children
-            append!(out, parseSvgElement(child, gradients, propertiesStack))
-        end
-        pop!(propertiesStack)
-        return out
+        return _svgChildren(node,props,gradients,propertiesStack,groups,offset)
     end
 
     if node.tag == "path"
@@ -582,11 +585,6 @@ function parseSvg(root::SvgNode, width::Int = 0, height::Int = 0)
     rootProps = svgDefaultProperties()
     rootProps = parseSvgProperties(root, rootProps)
 
-    if viewBoxMinX != 0 || viewBoxMinY != 0
-        viewBoxMin = Vec2(Float32(-viewBoxMinX), Float32(-viewBoxMinY))
-        rootProps.transform = rootProps.transform * translate(viewBoxMin)
-    end
-
     w = 0
     h = 0
     if width == 0 && height == 0
@@ -599,15 +597,33 @@ function parseSvg(root::SvgNode, width::Int = 0, height::Int = 0)
         rootProps.transform = rootProps.transform *
             scale(Vec2(scaleX, scaleY))
     end
-
-    gradients = Dict{String,SvgLinearGradient}()
-    elements = Vector{Tuple{Path,SvgProperties}}()
-    propertiesStack = SvgProperties[rootProps]
-    for node in root.children
-        append!(elements, parseSvgElement(node, gradients, propertiesStack))
+    if viewBoxMinX != 0 || viewBoxMinY != 0
+        rootProps.transform = rootProps.transform * translate(Vec2(-viewBoxMinX,-viewBoxMinY))
     end
 
-    return Svg(w, h, elements, gradients)
+    gradients = Dict{String,SvgLinearGradient}()
+    groups = SvgGroupBoundary[]
+    elements = _svgChildren(root,rootProps,gradients,SvgProperties[],groups,0)
+    return Svg(w, h, elements, gradients,groups)
+end
+
+function _svgChildren(node,props,gradients,stack,groups,offset)
+    elements = Tuple{Path,SvgProperties}[]
+    isolated = groups !== nothing && props.opacity != 1f0
+    if isolated
+        push!(groups,SvgGroupBoundary(offset+1,props.opacity))
+        props.opacity = 1f0
+    end
+    push!(stack,props)
+    try
+        for child in node.children
+            append!(elements,parseSvgElement(child,gradients,stack,groups,offset+length(elements)))
+        end
+    finally
+        pop!(stack)
+    end
+    isolated && push!(groups,SvgGroupBoundary(offset+length(elements)+1,nothing))
+    return elements
 end
 
 """
@@ -618,9 +634,34 @@ stroked when the stroke color/width are set.
 function newImage(svg::Svg)
     result = newImage(svg.width, svg.height)
 
-    blendMode = OverwriteBlend # Start as overwrite.
-    for (path, props) in svg.elements
+    layers = Union{Image,Nothing}[result]
+    opacities = Float32[]
+    boundary = 1
+    blendMode = OverwriteBlend
+    for i in 1:length(svg.elements)+1
+        while boundary <= length(svg.groups) && svg.groups[boundary].index == i
+            opacity = svg.groups[boundary].opacity
+            if isnothing(opacity)
+                child,alpha = pop!(layers),pop!(opacities)
+                if child !== nothing
+                    applyOpacity(child,alpha)
+                    draw(layers[end],child)
+                end
+            else
+                push!(opacities,opacity)
+                push!(layers,opacity == 0 || layers[end] === nothing ? nothing : newImage(svg.width,svg.height))
+            end
+            boundary += 1
+        end
+        i > length(svg.elements) && break
+        layers[end] === nothing && continue
+        path,props = svg.elements[i]
+        target = layers[end]
         if props.display && props.opacity > Float32(0)
+            has_stroke = props.stroke.a != 0 && props.strokeWidth > 0f0
+            isolate_element = props.opacity != 1f0 && props.fill != "none" && has_stroke
+            dest = isolate_element ? newImage(svg.width,svg.height) : target
+            opacity = isolate_element ? 1f0 : props.opacity
             if props.fill != "none"
                 paint = if startswith(props.fill, "url(")
                     # First ')' at 1-based position >= 6 (this build has no
@@ -648,11 +689,11 @@ function newImage(svg::Svg)
                     Paint(rgbx(parseHtmlColor(props.fill)))
                 end
 
-                paint.opacity = props.fillOpacity * props.opacity
+                paint.opacity = props.fillOpacity * opacity
                 paint.blendMode = blendMode
 
                 fillPath(
-                    result, path, paint;
+                    dest, path, paint;
                     transform = props.transform,
                     windingRule = props.fillRule)
             end
@@ -660,8 +701,7 @@ function newImage(svg::Svg)
             # Switch to normal when compositing multiple paths.
             blendMode = NormalBlend
 
-            if props.stroke != ColorRGBX(0x00, 0x00, 0x00, 0x00) &&
-                props.strokeWidth > Float32(0)
+            if has_stroke
                 p = Paint(props.stroke)
                 # Upstream: stroke color alpha is float32 end to end --
                 # `(a/255) * (opacity*strokeOpacity)` then `round(*255)` at the
@@ -669,12 +709,12 @@ function newImage(svg::Svg)
                 # alpha by 1 whenever the product hits a .5 (e.g.
                 # stroke-opacity 0.5), moving AA stroke pixels by ±1.
                 sa = Float32(p.color.a) / Float32(255)
-                sa = sa * (props.opacity * props.strokeOpacity)
+                sa = sa * (opacity * props.strokeOpacity)
                 p.color = ColorRGBA(
                     p.color.r, p.color.g, p.color.b,
                     UInt8(roundHalfAway(sa * Float32(255))))
                 strokePath(
-                    result, path, p;
+                    dest, path, p;
                     transform = props.transform,
                     strokeWidth = props.strokeWidth,
                     lineCap = props.strokeLineCap,
@@ -682,30 +722,23 @@ function newImage(svg::Svg)
                     miterLimit = props.strokeMiterLimit,
                     dashes = props.strokeDashArray)
             end
+            if isolate_element
+                applyOpacity(dest,props.opacity)
+                draw(target,dest)
+            end
         end
     end
 
     return result
 end
 
-# ---------- XML backend (opt-in, D014) ----------
+# ---------- XML backend ----------
 
 const _XML_PKGID = Base.PkgId(
     Base.UUID("72c71f33-b9b6-44de-8c94-c961784809e2"), "XML")
 
-"""
-The `XML` module, loaded on first use (lazy discovery, D028), or a clear
-install hint (D014). Environments without XML load normally and get this
-error only on use.
-"""
-function _requireXml()
-    if Base.locate_package(_XML_PKGID) === nothing
-        throw(ErrorException(
-            "SVG support is opt-in: add the XML package to your environment " *
-            "(Pkg.add(\"XML\")) and retry"))
-    end
-    return Base.require(_XML_PKGID)
-end
+"""Load the packaged XML dependency on first use."""
+_requireXml() = Base.require(_XML_PKGID)
 
 """True for `XML` element nodes (text/comments/xml-decl are skipped).
 Only Element nodes carry a non-`nothing` `tag` (verified on XML v0.4.7;
@@ -761,7 +794,7 @@ end
 
 """
 Parse SVG data (upstream `parseSvg(data: string, width, height)`): XML parse
-(opt-in `XML` package) then the core `parseSvg(root)`.
+(`XML` package) then the core `parseSvg(root)`.
 """
 function parseSvg(data::String, width::Int = 0, height::Int = 0)
     xml = _requireXml()

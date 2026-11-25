@@ -90,13 +90,15 @@ mutable struct CanvasEdit
     changed::Set{UInt64}
     """Deltas for nested edits, keyed by their immediate layer node ID."""
     child_changes::Dict{UInt64,Tuple}
+    parent::Union{CanvasEdit,Nothing}
+    parent_node::UInt64
 
     # Keep the published tuple boxed when transferring it to the edit.
     function CanvasEdit(owner, canvas, nodes, resources, resource_revisions, state, stack,
                         next_node, next_resource, active, changed, child_changes)
         @nospecialize resources
         new(owner, canvas, nodes, resources, resource_revisions, state, stack,
-            next_node, next_resource, active, changed, child_changes)
+            next_node, next_resource, active, changed, child_changes, nothing, 0)
     end
 end
 
@@ -213,14 +215,28 @@ Shared frozen storage is reused read-only; mutable parent storage and its map
 are copied. Does not mutate the parent. Closed or foreign-task use raises
 `ModelError(:invalid_state)`; allocation errors propagate.
 """
-function child_edit(edit::CanvasEdit, nodes)
+function child_edit(edit::CanvasEdit, nodes, parent_node::UInt64=UInt64(0))
     active_edit(edit)
-    if edit.resources isa Vector{ResourceRecord}
-        return CanvasEdit(edit.canvas,nodes,copy(edit.resources),copy(edit.resource_revisions),
-            edit.state,DrawingState[],edit.next_node,edit.next_resource,true)
+    resources, revisions = edit.resources, edit.resource_revisions
+    if resources isa Vector{ResourceRecord}
+        resources, revisions = copy(resources), copy(revisions)
     end
-    return CanvasEdit(edit.canvas,nodes,edit.resources,edit.resource_revisions,
+    child = CanvasEdit(edit.canvas,nodes,resources,revisions,
         edit.state,DrawingState[],edit.next_node,edit.next_resource,true)
+    child.parent, child.parent_node = edit, parent_node
+    return child
+end
+
+function with_child_edit(f, child::CanvasEdit)
+    parent = child.parent
+    parent.active = false
+    try
+        return f(child)
+    finally
+        parent.active = true
+        child.active = false
+        child.parent = nothing
+    end
 end
 
 """
@@ -356,9 +372,17 @@ function release_resource!(edit::CanvasEdit, reference::ResourceRef)
     active_edit(edit)
     index = findfirst(record -> record.reference == reference,edit.resources)
     index === nothing && model_error(:invalid_input,"unknown resource revision")
-    used = references_resource(SceneNodes(edit.nodes.root),reference) || references_resource(edit.state,reference) ||
-           any(record -> references_resource(record.payload,reference),edit.resources)
-    used && model_error(:invalid_state,"resource revision is still referenced")
+    any(record -> references_resource(record.payload,reference),edit.resources) &&
+        model_error(:invalid_state,"resource revision is still referenced")
+    scope = edit
+    replaced = UInt64(0)
+    while scope !== nothing
+        used = references_resource(scope.state,reference) ||
+            any(state -> references_resource(state,reference),scope.stack) ||
+            any(node -> node.id != replaced && references_resource(node,reference),SceneNodes(scope.nodes.root))
+        used && model_error(:invalid_state,"resource revision is still referenced")
+        replaced, scope = scope.parent_node, scope.parent
+    end
     writable_resources!(edit)
     deleteat!(edit.resources,index)
     any(record -> record.reference.id == reference.id,edit.resources) ||
@@ -503,7 +527,7 @@ function with_group(callback, edit::CanvasEdit; opacity::Real=1, blend::Symbol=:
         model_error(:unsupported,"unsupported group effect; expected nothing or BoxBlur")
     child = child_edit(edit,SemanticNode[])
     try
-        callback(child)
+        with_child_edit(callback,child)
         isempty(child.stack) || model_error(:invalid_state, "unbalanced group state")
         id = next_revision(child.next_node)
         push!(edit.nodes,SemanticNode(id,1,CompositeGroup(SceneNodes(child.nodes.root),alpha,mode,effect)))
@@ -529,9 +553,9 @@ end
 function replace_node!(edit::CanvasEdit, id::Integer, drawable; kwargs...)
     active_edit(edit)
     old = find_node(edit.nodes.root,id)
-    child = child_edit(edit,SemanticNode[])
+    child = child_edit(edit,SemanticNode[],old.id)
     try
-        lower!(child,drawable;kwargs...)
+        with_child_edit(c -> lower!(c,drawable;kwargs...),child)
         length(child.nodes) == 1 || model_error(:invalid_input, "replacement must lower to one node")
         node = SemanticNode(old.id,next_revision(old.revision),only(child.nodes).operation)
         push!(edit.nodes,node)

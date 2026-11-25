@@ -1,0 +1,72 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: Linux, arch: x86_64, runner: ubuntu-24.04}
+          - {os: Linux, arch: aarch64, runner: ubuntu-24.04-arm}
+          - {os: FreeBSD, arch: x86_64, runner: ubuntu-24.04}
+          - {os: FreeBSD, arch: aarch64, runner: ubuntu-24.04}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2
+        if: matrix.os == 'Linux'
+        with:
+          version: '1.13.4'
+      - name: Build and test on Linux
+        if: matrix.os == 'Linux'
+        run: julia --startup-file=no --project=. tools/ci.jl Linux "${{ matrix.arch }}"
+      - name: Build and test inside FreeBSD
+        if: matrix.os == 'FreeBSD'
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          ARM_JULIA_URL: ${{ vars.FREEBSD_AARCH64_JULIA_URL }}
+          ARM_JULIA_SHA256: ${{ vars.FREEBSD_AARCH64_JULIA_SHA256 }}
+        with:
+          release: '14.4'
+          arch: ${{ matrix.arch }}
+          envs: EXPECTED_ARCH ARM_JULIA_URL ARM_JULIA_SHA256
+          copyback: 'false'
+          prepare: |
+            set -eu
+            pkg install -y ca_root_nss git rust cmake pkgconf
+            if [ "$EXPECTED_ARCH" = aarch64 ]; then
+              pkg install -y opencv
+            fi
+            if [ "$EXPECTED_ARCH" = x86_64 ]; then
+              fetch -o /tmp/julia.tgz https://julialang-s3.julialang.org/bin/freebsd/x64/1.13/julia-1.13.4-freebsd-x86_64.tar.gz
+              test "$(sha256 -q /tmp/julia.tgz)" = fc169294632189dadf2bee11a42aff4a31912399ef0ac48827ae7f5f54b0f561
+              mkdir -p /opt/julia
+              tar -xf /tmp/julia.tgz -C /opt/julia --strip-components 1
+            elif [ -n "${ARM_JULIA_URL:-}" ]; then
+              test -n "${ARM_JULIA_SHA256:-}"
+              fetch -o /tmp/julia.tgz "$ARM_JULIA_URL"
+              test "$(sha256 -q /tmp/julia.tgz)" = "$ARM_JULIA_SHA256"
+              mkdir -p /opt/julia
+              tar -xf /tmp/julia.tgz -C /opt/julia --strip-components 1
+            else
+              pkg install -y gcc gmake python3 perl5 m4 gmp
+              fetch -o /tmp/julia-src.tgz https://github.com/JuliaLang/julia/releases/download/v1.13.4/julia-1.13.4-full.tar.gz
+              test "$(sha256 -q /tmp/julia-src.tgz)" = 55bb4442c887a3e99f287b53c467fdd5e78e376344ea2a84865742d13a27d71c
+              tar -xf /tmp/julia-src.tgz -C /tmp
+              gmake -C /tmp/julia-1.13.4 -j2 USE_BINARYBUILDER=0 prefix=/opt/julia install
+            fi
+          run: |
+            set -eu
+            /opt/julia/bin/julia --startup-file=no --project=. tools/ci.jl FreeBSD "$EXPECTED_ARCH"

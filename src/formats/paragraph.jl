@@ -1,7 +1,6 @@
 # Paragraph layout: source spans, Unicode graphemes, shaped glyphs and boxes.
 # HarfBuzz handles glyph shaping; Julia supplies grapheme boundaries.
 # `typeset` remains the explicitly unshaped compatibility API.
-# Current profile and limitations: docs/text/README.md.
 #
 # NOTE on this build's String semantics: `length(s)` and iteration are
 # codepoint-based (as upstream Nim's `len`), while `s[i]` and `s[a:b]` are
@@ -44,7 +43,7 @@ Paragraph(spans,width,height,lineHeight,hAlign,vAlign,overflow,dir,script,langua
     Paragraph(spans,width,height,lineHeight,hAlign,vAlign,overflow,dir,script,language,())
 
 """A grapheme cluster: codepoint range `[first, last)` (1-based, last
-exclusive) within `span`'s text — docs/TEXT_LAYOUT.md §2.8/§3."""
+exclusive) within `span`'s text."""
 struct Cluster
     span::Int
     first::Int
@@ -60,7 +59,7 @@ struct ParagraphLine
     width::Float32
 end
 
-"""Layout facts (unclipped) — docs/TEXT_LAYOUT.md §2.9."""
+"""Layout facts (unclipped)."""
 struct ParagraphMetrics
     width::Float32
     height::Float32
@@ -199,7 +198,7 @@ end
 # ---------- grapheme clusters (UAX#29 subset, D031 §3) ----------
 
 # Generated tables — do not edit by hand.
-# Provenance: Unicode 16.0.0 (https://unicode.org/Public/16.0.0/ucd/).
+# Provenance: Unicode 16.0.0 (https://www.unicode.org/Public/16.0.0/ucd/).
 #   _CLUSTER_EXTEND: derived property Grapheme_Extend
 #     (DerivedCoreProperties-16.0.0.txt; = Me + Mn + Other_Grapheme_Extend),
 #     BMP subset (220 ranges) plus U+200D (ZWJ is category Cf and therefore
@@ -207,11 +206,11 @@ end
 #     Extend class — U+200C already appears in the derived property).
 #   _CLUSTER_MC: general category Mc (spacing combining marks),
 #     from UnicodeData-16.0.0.txt, BMP subset (112 ranges).
-# Regenerated 2026-11-09 (T029) by tools/oracle/gen_cluster_tables.py —
+# Regenerated from Unicode 16.0.0 on 2026-11-09;
 # the original T028 generation had range misalignment (base letters such
 # as Devanagari 0905/0915/0936 and Myanmar 1000..100B were inside both
 # tables; round-trip verified codepoint-exact against the UCD sources).
-# Used by _canBreakCluster (docs/TEXT_LAYOUT.md §3).
+# Used by _canBreakCluster.
 const _CLUSTER_EXTEND = [
     0x0300, 0x036f, 0x0483, 0x0489, 0x0591, 0x05bd,
     0x05bf, 0x05bf, 0x05c1, 0x05c2, 0x05c4, 0x05c5,
@@ -381,7 +380,7 @@ function _hangulClass(cp::UInt32)
     return 0
 end
 
-"""UAX#29 GB8 narrow approximation (docs/TEXT_LAYOUT.md §3.1): no break
+"""UAX#29 GB8 narrow approximation: no break
 for L×{L,V,T}, V×T, and precomposed syllable × {V,T}."""
 function _hangulNoBreak(a::UInt32, b::UInt32)
     ca = _hangulClass(a)
@@ -498,7 +497,7 @@ end
 
 """Shape a paragraph in either direction using HarfBuzz. Missing providers and
 uncovered graphemes raise explicitly; `typeset` is the unshaped compatibility API.
-Source cluster indices are codepoints, not UTF-8 bytes. See docs/text/README.md."""
+Source cluster indices are codepoints, not UTF-8 bytes."""
 function layoutParagraph(p::Paragraph)
     _checkTextPresentation(span.text for span in p.spans)
     _requireHarfBuzz()
@@ -542,7 +541,7 @@ function _shapedEllipsis(p::Paragraph)
         best.shaped,best.shapedPos,best.shapedFonts)
 end
 
-"""Layout facts (unclipped) — docs/TEXT_LAYOUT.md §2.9."""
+"""Layout facts (unclipped)."""
 function paragraphMetrics(l::ParagraphLayout)
     w = Float32(0)
     h = Float32(0)

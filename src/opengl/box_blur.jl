@@ -1,9 +1,9 @@
 """
-Lower Vetra's bounded BoxBlur effect into the OpenGL vector packet.
+Lower Vellum's bounded BoxBlur effect into the OpenGL vector packet.
 """
 module BoxBlurPlan
 
-using ...Vetra: BoxBlur, CompositeGroup, Frame, SemanticNode, CPUBackend
+using ...Vellum: BoxBlur, CompositeGroup, Frame, SemanticNode, CPUBackend
 using ..FrameCurves: FrameCurves
 
 """Physical kernel radius supported by bridges that predate the radius query."""

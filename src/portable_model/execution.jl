@@ -1,6 +1,10 @@
+"""A drawing provider that declares capabilities, allocates surfaces and executes prepared frames."""
 abstract type Backend end
+"""A render destination owned by the caller of `make_surface` or `render`. Release it with `close`."""
 abstract type Surface end
+"""Pending work submitted to a backend. Use `wait` to observe completion."""
 abstract type Submission end
+"""A platform adapter that presents a completed submission to a display surface."""
 abstract type Presenter end
 
 struct CapabilityError <: Exception
@@ -93,6 +97,14 @@ operation_kind(::SurfaceRegion) = :surface
 operation_kind(::CompositeGroup) = :group
 operation_kind(::SemanticOperation) = model_error(:unsupported,"unknown semantic operation")
 
+"""
+    requirements(operation)
+
+List the rendering capabilities needed by a frame operation. A backend offering
+`:path_precision_1_256px` must preserve transformed fill and stroke coordinates
+to within 1/256 physical pixel per axis when narrowing geometry. It must reject
+out-of-range geometry before publishing the result. Float64 providers also qualify.
+"""
 function requirements(operation::SemanticOperation)
     kind = operation_kind(operation)
     if operation isa CompositeGroup
@@ -100,7 +112,8 @@ function requirements(operation::SemanticOperation)
         return operation.effect === nothing ? required : (required...,:effect_box_blur_v1)
     end
     state = operation.state
-    result = (kind,:float64)
+    precision = operation isa Union{FillPath,StrokePath} ? :path_precision_1_256px : :float64
+    result = (kind,precision)
     isempty(state.clips) || (result = (result...,:clip))
     if (operation isa Union{FillPath,StrokePath} && operation.path.has_curves) ||
        any(clip -> clip.path.has_curves,state.clips)
@@ -134,7 +147,10 @@ end
 function prepare_operation(operation::SemanticOperation, node::SemanticNode, frame::Frame,
                            caps::Capabilities, policy::RenderPolicy, report)
     required = requirements(operation)
-    missing = findfirst(feature -> !(feature in caps.features),required)
+    missing = findfirst(required) do feature
+        feature in caps.features && return false
+        return !(feature === :path_precision_1_256px && :float64 in caps.features)
+    end
     if !(operation isa CompositeGroup)
         operation.state.profile in caps.profiles || throw(CapabilityError(node.id,operation.state.profile))
         if operation isa ImageRegion
@@ -204,18 +220,44 @@ function prepare(backend::Backend, frame::Frame; policy::RenderPolicy=RenderPoli
     end
 end
 
+"""Allocate a render target of the requested physical pixel size on a backend."""
 make_surface(::Backend, size) = model_error(:unsupported,"backend must create or receive a surface")
+"""Execute a prepared frame synchronously and return its destination surface."""
 execute!(::Backend, ::Surface, ::PreparedFrame) = model_error(:unsupported,"backend must implement execution")
 
-"""Blocking adapter rendering; no presentation, codec, timer or hidden device readback."""
+"""
+    readback(surface) -> Image
+
+Copy the completed surface into an independently owned, top-left, premultiplied RGBA8 image.
+Providers implement this operation for readable surfaces. GPU surfaces may need a device transfer.
+"""
+readback(::Surface) = model_error(:unsupported,"surface does not support pixel readback")
+
+"""Release resources belonging to a surface. Providers holding native handles implement this method."""
+Base.close(::Surface) = nothing
+
+"""Take the image from a private one-shot surface. Providers with transferable storage can avoid a copy."""
+_take_raster_image(surface::Surface) = readback(surface)
+
+"""
+    render(frame; backend, size=frame.size, policy=RenderPolicy()) -> Surface
+
+Render synchronously into a new surface at the requested physical pixel size.
+The caller owns the result and can present it, call `readback` to copy pixels, or close it.
+"""
 function render(frame::Frame; backend::Backend, size=frame.size, policy::RenderPolicy=RenderPolicy())
     plan = prepare(backend,frame;policy)
+    surface = nothing
     try
-        dimensions = checked_dimensions(size...)
-        surface = make_surface(backend,dimensions)
-        return execute!(backend,surface,plan)
-    finally
-        close(plan)
+        try
+            surface = make_surface(backend,checked_dimensions(size...))
+            return execute!(backend,surface,plan)
+        finally
+            close(plan)
+        end
+    catch
+        isnothing(surface) || close(surface)
+        rethrow()
     end
 end
 

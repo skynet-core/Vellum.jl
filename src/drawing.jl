@@ -20,6 +20,27 @@ function drawing(callback; size)
 end
 
 """
+    resource!(edit, source::ImageStorage.AbstractImageProvider; budget_bytes=typemax(Int))
+
+Snapshot a pixel provider as a portable image resource and return its reference.
+Read the source through a temporary lease, honoring row and pixel strides, and
+convert to dense, top-left premultiplied sRGB RGBA8. `budget_bytes` bounds the
+conversion and provider staging. The frame owns a separate immutable copy.
+"""
+function resource!(edit::CanvasEdit, source::ImageStorage.AbstractImageProvider; budget_bytes=typemax(Int))
+    active_edit(edit)
+    converted = ImageStorage.convert_buffer(source;format=:rgba8,alpha=:premultiplied,
+                                            color_space=:srgb,budget_bytes)
+    buffer = converted.buffer
+    try
+        metadata = ImageStorage.image_metadata(buffer)
+        return resource!(edit, Image(metadata.width,metadata.height,buffer.owner.bytes))
+    finally
+        close(buffer)
+    end
+end
+
+"""
     rectangle!(edit, x, y, width, height; fill)::UInt64
 
 Draw a filled rectangle and return its retained node ID.
@@ -99,19 +120,27 @@ end
 """
     _drawing_native_backend(target, device)
 
-Create the existing Linux OpenGL or Vulkan backend on the caller's thread.
-Read the configured bridge path and resolve the device. Unsupported
-platforms, missing bridges, and invalid devices raise `ArgumentError`.
-The backend opens the device at render time.
+Select a native renderer on the caller's thread. An X11 OpenGL request
+uses the bundled GLX provider when no legacy bridge is configured or found.
+The Vulkan provider uses the Vulkan renderer of GTK 4.14+ on the desktop display.
 """
-function _drawing_native_backend(target, device; linux=Sys.islinux())
-    linux || throw(ArgumentError("$target one-shot rendering requires Linux; use savehtml for browser output"))
-    vendor, product = _drawing_device(device)
+function _drawing_native_backend(target, device; linux=Sys.islinux(), freebsd=Sys.isfreebsd())
+    linux || (freebsd && target === :opengl) ||
+        throw(ArgumentError("$target one-shot rendering is unavailable on this platform"))
     name = target === :opengl ? "OPENGL" : "VULKAN"
-    filename = target === :opengl ? "libvetra_opengl.so" : "libvetra_vulkan.so"
-    variable = "VETRA_$(name)_LIBRARY"
-    path = get(ENV, variable, joinpath(@__DIR__, "..", "build", String(target), filename))
-    isfile(path) || throw(ArgumentError("native bridge not found at $(repr(path)); build the $target bridge or set $variable to its library path"))
+    variable = "VELLUM_$(name)_LIBRARY"
+    path = get(ENV, variable, "")
+    if isempty(path)
+        directory = joinpath(@__DIR__, "..", "build", String(target))
+        library = Libdl.find_library(["libvellum_$target","libvetra_$target"],[directory])
+        if isempty(library)
+            target === :opengl && return OpenGLBackend.DesktopBackend(;device)
+            return VulkanBackend.DesktopBackend(;device)
+        end
+        path = Libdl.dlpath(library)
+    end
+    isfile(path) || throw(ArgumentError("native bridge not found at $(repr(path)); check $variable"))
+    vendor, product = _drawing_device(device)
     return OpenGLBackend.NativeBackend{target}(abspath(path), vendor, product)
 end
 
@@ -123,17 +152,19 @@ Render a frame and return its own premultiplied RGBA image.
 
 Set `size` to physical `(width, height)` in integer pixels. The default
 creates and closes a temporary CPU renderer. Supply a `device` only for
-`target=:opengl` or `:vulkan`. Those targets wait for a Linux native render
-and read back its completed image. `device=:auto`
+`target=:opengl` or `:vulkan`. The first-party offscreen OpenGL provider
+uses the X11 display's OpenGL device. Symbolic device selectors check its
+vendor and exact PCI matches require a driver with GLX_MESA_query_renderer.
+The desktop Vulkan provider uses Vulkan-enabled GTK 4.14+ and selects its display device with `device=:auto`.
+For the legacy native bridge adapters, `device=:auto`
 requires exactly one visible PCI DRM render node. `:amd`, `:intel`, and
 `:nvidia` require exactly one matching node; `(vendor, product)` selects
 nonzero 16-bit PCI IDs directly, including devices without a public DRM node.
 For several visible GPUs, choose a unique vendor or an exact PCI pair.
 The installed driver determines reachability and capabilities.
 
-Native bridges are found at `build/{opengl,vulkan}/libvetra_{opengl,vulkan}.so`
-or via `VETRA_OPENGL_LIBRARY` / `VETRA_VULKAN_LIBRARY`. Build and configure
-them separately. Native library loading starts with a native request.
+Set `VELLUM_OPENGL_LIBRARY` or `VELLUM_VULKAN_LIBRARY` to select a compatible
+native bridge. Native library loading starts with a native request.
 For advanced configuration, pass an existing `backend` on its owning thread.
 The caller owns that backend. Combining it with `target` or `device` raises
 `ArgumentError`.
@@ -164,26 +195,15 @@ function rasterize(frame::Frame; backend=nothing, target=_DRAWING_OMITTED, devic
         end
         native = _drawing_native_backend(choice, device === _DRAWING_OMITTED ? :auto : device)
         return rasterize(frame; backend=native, size, hinting)
-    elseif backend isa CPUBackend.Renderer
-        frame = hinting === nothing ? frame : hinted_frame(frame; size, hinting)
-        # The fresh surface is private. Pass out its owned pixel buffer.
-        return render(frame; backend, size).image
-    elseif backend isa OpenGLBackend.NativeBackend
-        frame = hinting === nothing ? frame : hinted_frame(frame; size, hinting)
-        plan = prepare(backend, frame)
-        try
-            surface = make_surface(backend, checked_dimensions(size...))
-            try
-                execute!(backend, surface, plan)
-                return OpenGLBackend.readback_native(surface)
-            finally
-                close(surface)
-            end
-        finally
-            close(plan)
-        end
     end
-    throw(ArgumentError("rasterize supports CPU, OpenGL and Vulkan backends, got $(typeof(backend))"))
+    backend isa Backend || throw(ArgumentError("expected a drawing Backend, got $(typeof(backend))"))
+    frame = hinting === nothing ? frame : hinted_frame(frame; size, hinting)
+    surface = render(frame; backend, size)
+    try
+        return _take_raster_image(surface)
+    finally
+        close(surface)
+    end
 end
 
 """
