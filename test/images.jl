@@ -28,6 +28,8 @@ function test_images()
         @test resize(im, 5, 3).data == im.data
         @test diff(im, copy(im))[1] == 0
         @test opaque_bounds(im) == rect(1, 1, 4, 1)
+        @test_throws ArgumentError blender(BlendMode(-1))
+        @test_throws ArgumentError blender(BlendMode(20))
         for mode in (NormalBlend, DarkenBlend, MultiplyBlend, ColorBurnBlend, LightenBlend,
                      ScreenBlend, ColorDodgeBlend, OverlayBlend, SoftLightBlend, HardLightBlend,
                      DifferenceBlend, ExclusionBlend, HueBlend, SaturationBlend, ColorBlend,
@@ -110,7 +112,7 @@ function test_images()
             im[y, x] = rgbx(rgba(9x, 23y, x*y, mod(3x+7y, 256)))
         end
         mktempdir() do dir
-            for (fmt, ext) in ((PngFormat,"png"),(QoiFormat,"qoi"),(BmpFormat,"bmp"),(PpmFormat,"ppm"))
+            for (fmt, ext) in ((PngFormat,"png"),(QoiFormat,"qoi"),(BmpFormat,"bmp"),(PpmFormat,"ppm"),(WebpFormat,"webp"))
                 original = copy(im)
                 if fmt == PpmFormat
                     original.data[4:4:end] .= 255
@@ -163,6 +165,87 @@ function test_images()
         @test_throws C.CodecError C.eachframe(animation;limits=C.CodecLimits(decoded_bytes=31))
         @test_throws C.CodecError C.eachframe(jpeg)
         @test_throws C.CodecError C.eachframe(animation;cancelled=Returns(true))
-        @test_throws ArgumentError encode_webp(im)
+        test_webp(im)
+    end
+end
+
+"""Verify lossless and lossy still images, bounded RIFF inspection, and independently composited animation frames."""
+function test_webp(image)
+    C = ImageCodecs
+    @testset "WebP still images and composited animation" begin
+        p = only(filter(p->p.format===:webp,C.providers()))
+        @test p.available && p.decode && p.encode && p.sequence
+
+        lossless = encode_webp(image)
+        @test decode_webp(lossless).data == image.data
+        @test C.encode_image(image;format=:webp).bytes == lossless
+        @test C.inspect_image(lossless).alpha === :straight
+        @test C.inspect_image(lossless).orientation == 1
+        still = C.eachframe(lossless)
+        @test length(still)==1 && still.loop_count===nothing && first(still).disposal===:unspecified
+        @test first(still).duration == 0 && first(still).image.data == image.data
+        lossy_alpha = encode_webp(image;quality=89)
+        @test decode_webp(lossy_alpha).data[4:4:end] == image.data[4:4:end]
+        @test_throws C.CodecError encode_webp(image;quality=101)
+
+        # Reference pixels for an opaque 9×7 VP8 image decoded independently in ImageMagick.
+        source = base64decode("UklGRj4AAABXRUJQVlA4IDIAAADQAQCdASoJAAcAAMAQJaACdLoB+AADsAD+9L7v/xlT4kL8SF/4yp/7O79O79O7+98AAA==")
+        @test decode_webp_dimensions(source)==(9,7)
+        @test C.inspect_image(source).alpha===:none
+        raster = decode_webp(source)
+        reference = [x>6 || (y==7 && x<=4) ? rgbx(48,105,193,255) : rgbx(48,104,195,255)
+                     for y in 1:7, x in 1:9]
+        @test all(raster[y,x] == reference[y,x] for y in 1:7, x in 1:9)
+        output = decode_webp(encode_webp(decode_webp(source);quality=90))
+        @test maximum(abs.(Int.(output.data).-Int.(decode_webp(source).data)))<=4
+        # The header reader can stop before compressed data arrives.
+        io = IOBuffer(source[1:30])
+        @test C.inspect_image(io;format=:webp,limits=C.CodecLimits(header_bytes=30)).width==9
+        @test isopen(io) && position(io)==30
+
+        # webpmux assembled three independent lossless images. ImageMagick's
+        # coalesced RGBA reference rounds the half-alpha green overlap to (127,128,0).
+        anim = base64decode("UklGRrQAAABXRUJQVlA4WAoAAAASAAAAAwAAAQAAQU5JTQYAAAAAAAAAAwBBTk1GKAAAAAAAAAAAAAMAAAEAABMAAAJWUDhMDwAAAC8DQAAABxD9j/4HIqL/AQBBTk1GKAAAAAEAAAAAAAEAAAEAACUAAAFWUDhMDwAAAC8BQAAQB9D/iAIGIqL/AQBBTk1GKAAAAAAAAAAAAAAAAAEAACoAAAJWUDhMDwAAAC8AQAAABxDR//4HIqL/AQA=")
+        seq = C.eachframe(IOBuffer(anim))
+        @test length(seq)==3 && seq.loop_count==3
+        @test [f.duration for f in seq] == [19,37,42] .// 1000
+        @test [f.disposal for f in seq] == [:keep,:background,:keep]
+        red,blue,clear = rgbx(255,0,0,255),rgbx(0,0,255,255),rgbx(0,0,0,0)
+        a,b,c = (f.image for f in seq)
+        @test all(==(red),a)
+        @test decode_image(anim).data == a.data
+        decoded = C.decode_image(anim)
+        try
+            @test decoded.buffer.owner.bytes == a.data
+            @test :first_frame in decoded.report.conversions
+        finally
+            close(decoded)
+        end
+        for y in 1:2
+            @test all(x->b[y,x]==red,1:2)
+            pixel = b[y,3]
+            @test pixel==b[y,4] && pixel.b==0 && pixel.a==255
+            @test abs(Int(pixel.r)-127)<=1 && abs(Int(pixel.g)-128)<=1
+            @test [c[y,x] for x in 1:4] == [blue,red,clear,clear]
+        end
+        c[1] = clear
+        @test a[1] == b[1] == red
+        @test_throws C.CodecError C.eachframe(anim;limits=C.CodecLimits(frames=2))
+        @test_throws C.CodecError C.eachframe(anim;limits=C.CodecLimits(decoded_bytes=95))
+        @test_throws C.CodecError C.decode_image(source;limits=C.CodecLimits(encoded_bytes=length(source)-1))
+        @test_throws C.CodecError C.inspect_image(source;limits=C.CodecLimits(header_bytes=29))
+        @test_throws C.CodecError C.eachframe(anim;cancelled=Returns(true))
+        for data in (anim[1:end-1],vcat(source,0x00),source[1:20])
+            @test_throws C.CodecError C.decode_image(data)
+        end
+        flagged = copy(anim)
+        flagged[21] |= 0x20
+        @test_throws C.CodecError C.inspect_image(flagged)
+        wrong_type = copy(source)
+        wrong_type[13:16] .= codeunits("JUNK")
+        @test_throws C.CodecError C.inspect_image(wrong_type)
+        extra_metadata = vcat(source,codeunits("EXIF"),zeros(UInt8,4))
+        extra_metadata[5:8] .= reinterpret(UInt8,[htol(UInt32(length(extra_metadata)-8))])
+        @test_throws C.CodecError C.decode_image(extra_metadata)
     end
 end

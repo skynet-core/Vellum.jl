@@ -395,6 +395,7 @@ end
 """
 function blender(mode::BlendMode)
     v = mode.value
+    0 <= v <= 19 || throw(ArgumentError("unknown blend mode BlendMode($(v))"))
     return (b::ColorRGBX, s::ColorRGBX) ->
         v == 0 ? blendNormal(b, s) :
         v == 1 ? blendDarken(b, s) :
@@ -415,6 +416,5 @@ function blender(mode::BlendMode)
         v == 16 ? blendMask(b, s) :
         v == 17 ? s :
         v == 18 ? blendSubtractMask(b, s) :
-        v == 19 ? blendExcludeMask(b, s) :
-        throw(ArgumentError("unknown blend mode BlendMode($(v))"))
+        blendExcludeMask(b, s)
 end

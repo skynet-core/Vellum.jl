@@ -43,6 +43,7 @@ Run `using Pkg; Pkg.test()` with the repository project active. The generated re
 | Source line coverage (`reports/coverage.html`) | Expand a file to see execution counts, missed lines and Julia source. |
 | Coverage for editors (`reports/coverage.info`) | LCOV counts and repository-relative paths for source coverage overlays. |
 | CPU samples (`profiles/cpu.html`) | Inclusive samples in the warmed test workload, with an inventory of package methods. |
+| Direct CPU timings (`profiles/cpu-methods.html`) | Median and p95 time per input, allocations per batch, and the method definitions exercised by the pixel, geometry and codec workloads. |
 | CPU stacks for VS Code (`profiles/cpu.cpuprofile`) | Open the file directly in VS Code to inspect the sampled stacks. |
 | GPU timings (`profiles/gpu.html`) | CUDA event measurements for pixel blends, color helpers and geometry methods, checked against CPU results. Expand the method inventory to see which methods still lack a device measurement. |
 | OpenGL frame profile (`profiles/opengl.html`) | Host submission, GPU timestamps and readback for a warmed frame, with a downloadable Perfetto timeline. |

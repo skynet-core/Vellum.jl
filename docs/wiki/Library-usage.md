@@ -47,7 +47,17 @@ end
 
 ## Register a format
 
-For animated GIFs, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API continues to return the first frame.
+For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.
+
+```julia
+using Vellum
+swatch = Image(2, 1)
+swatch[1, 1] = rgbx(rgba(255, 32, 0, 128))
+bytes = encode_webp(swatch)
+@assert decode_webp(bytes).data == swatch.data
+lossy = ImageCodecs.encode_image(swatch; format=:webp, quality=85).bytes
+@assert decode_webp_dimensions(lossy) == (2, 1)
+```
 
 Supply a bounded signature probe to make a codec discoverable by the byte and stream decoding APIs. This example recognizes a six-byte swatch consisting of a two-byte signature followed by one straight-alpha RGBA pixel. Its decoder converts the color to Vellum's premultiplied representation.
 

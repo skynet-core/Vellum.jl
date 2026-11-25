@@ -307,6 +307,17 @@ end
 fill(image::Image, color::ColorRGB) =
     fill(image, ColorRGBX(color.r, color.g, color.b, 0xff))
 
+"""Return a new byte vector of straight RGBA8 samples in row-major pixel order."""
+function _straight_rgba_bytes(image::Image)
+    bytes = Vector{UInt8}(undef, length(image.data))
+    for (i, pixel) in enumerate(image)
+        c = toStraightAlpha(pixel)
+        k = 4i - 3
+        bytes[k], bytes[k+1], bytes[k+2], bytes[k+3] = c.r, c.g, c.b, c.a
+    end
+    return bytes
+end
+
 # ---------- compositing (pixie/common.nim, blends.nim) ----------
 
 """

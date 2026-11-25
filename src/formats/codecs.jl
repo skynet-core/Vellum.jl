@@ -369,6 +369,8 @@ function gif_sequence(data,header,limits,cancelled)
     return ImageSequence(frames,gif.loop_count)
 end
 
+include("webp_codec.jl")
+
 function builtin_providers()
     [
         CodecProvider(:pngfiles,:png,()->Base.locate_package(Vellum._PNGFILES_PKGID) !== nothing,
@@ -387,6 +389,10 @@ function builtin_providers()
                           Vellum.decodeJPEG(data)
                       end,
                       (image,options)->Vellum.encodeJPEG(image;quality=options.quality,background=options.background)),
+        CodecProvider(:libwebp,:webp,()->Base.locate_package(WEBP_PACKAGE) !== nothing,
+                      webp_header,(args...)->first(webp_frames(args...;first_only=true)).image,
+                      (image,options)->webp_encode(image,options.quality);
+                      probe=webp_signature,probe_bytes=12,decode_sequence=webp_frames),
         CodecProvider(:builtin,:gif,Returns(true),gif_header,
                       (args...)->first(gif_data(args...).frames),nothing;decode_sequence=gif_sequence),
         CodecProvider(:builtin,:qoi,Returns(true),qoi_header,
@@ -578,7 +584,7 @@ function decode_image(data::Vector{UInt8};format=nothing,limits=CodecLimits(),
                  orientation_copy_bytes=header.orientation == 1 ? 0 : count,provider_workspace_bytes=nothing,
                  conversions=(conversions[1]...,conversions[2]...,conversions[3]...,
                               (header.color_space == :linear_srgb ? (:transfer,) : ())...,
-                              (format == :gif ? (:first_frame,) : ())...)))
+                              ((format == :gif || (format == :webp && webp_animated(data))) ? (:first_frame,) : ())...)))
 end
 function decode_image(io::IO;limits=CodecLimits(),cancelled=()->false,kwargs...)
     data = read_encoded(io,limits,cancelled)
@@ -623,11 +629,12 @@ end
 
 valid_pixels(bytes) = all(i -> max(bytes[i],bytes[i+1],bytes[i+2]) <= bytes[i+3],1:4:length(bytes))
 function encode_image(image::Vellum.Image;format::Symbol,limits=CodecLimits(),
-                      registry=CodecRegistry(),cancelled=()->false,quality::Int=92,background=nothing)
+                      registry=CodecRegistry(),cancelled=()->false,quality::Union{Nothing,Int}=nothing,background=nothing)
     check_cancel(cancelled)
     count = check_size(image.width,image.height,limits)
     length(image.data) == count || fail(:invalid_input,"invalid raster extent")
     valid_pixels(image.data) || fail(:invalid_input,"invalid premultiplied pixels")
+    quality === nothing && format !== :webp && (quality = 92)
     if format in (:jpeg,:ppm)
         1 <= quality <= 100 || fail(:invalid_input,"JPEG quality must be 1..100")
         opaque = all(==(0xff),@view image.data[4:4:end])

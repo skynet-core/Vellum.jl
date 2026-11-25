@@ -1,4 +1,31 @@
+import LibGit2
+
+"""Identify installed sources by revision, marking uncommitted changes or a package-only installation."""
+function profile_revision()
+    root = pkgdir(Vellum)
+    ispath(joinpath(root,".git")) || return string("package ",pkgversion(Vellum))
+    repo = LibGit2.GitRepo(root)
+    try
+        return string(LibGit2.head_oid(repo),LibGit2.isdirty(repo) ? " (working tree)" : "")
+    finally
+        close(repo)
+    end
+end
+
 html_escape(s) = replace(string(s), '&'=>"&amp;", '<'=>"&lt;", '>'=>"&gt;", '"'=>"&quot;")
+
+"""Link a method location to the highlighted line in the local unit-coverage report."""
+function profile_source_link(dir,source,line)
+    root = pkgdir(Vellum)
+    coverage = joinpath(root,"reports","coverage.html")
+    location = replace(string(source), '\\'=>'/')
+    path = if isfile(coverage) && (startswith(location,"src/") || startswith(location,"ext/"))
+        relpath(coverage,dir)*"#"*location*":"*string(line)
+    else
+        relpath(joinpath(root,source),dir)
+    end
+    return "<a href=\""*html_escape(replace(path,'\\'=>'/'))*"\">"*html_escape(location)*":"*string(line)*"</a>"
+end
 
 function report_header(io, title)
     println(io, """<!doctype html><html lang="en"><meta charset="utf-8">
@@ -25,14 +52,14 @@ function coverage_html(path, files, root; integration=false)
         println(io,"<p>Expand a file to inspect its source. Each numbered line shows its execution count. A dash marks a non-executable line.</p>")
         for file in sort(files;by=f->f.filename)
             c,t = CoverageTools.get_summary(file)
-            name = html_escape(relpath(file.filename,root))
+            name = html_escape(replace(relpath(file.filename,root),'\\'=>'/'))
             ratio = t == 0 ? "—" : string(round(100c/t;digits=1), "%")
             println(io,"<details><summary><meter min=0 max=",max(t,1)," value=",c,"></meter> ",name," · ",ratio,
                     " (",c,"/",t,")</summary><pre>")
             for (n,line) in enumerate(eachline(IOBuffer(file.source)))
                 count = get(file.coverage,n,nothing)
                 class = isnothing(count) ? "blank" : iszero(count) ? "miss" : "hits"
-                print(io,"<span class=line><span class=",class,">",n," | ",something(count,"–"),
+                print(io,"<span class=line id=\"",name,":",n,"\"><span class=",class,">",n," | ",something(count,"–"),
                       "</span>",html_escape(line),"</span>")
             end
             println(io,"</pre></details>")
@@ -41,6 +68,7 @@ function coverage_html(path, files, root; integration=false)
     end
 end
 
+"""Render device latency distributions and the inventory of methods missing a device measurement."""
 function gpu_html(tsv)
     rows = readlines(tsv)
     open(splitext(tsv)[1]*".html","w") do io
@@ -51,10 +79,13 @@ function gpu_html(tsv)
         entries = [split(line,'\t') for line in rows[4:end]]
         peak = maximum((parse(Float64,r[3]) for r in entries if !isempty(r[3]));init=1.0)
         println(io,"<p>Each row measures one device workload. Other package methods have no device measurement in this run.</p>")
-        println(io,"<table><tr><th>Function or blend mode</th><th>Inputs</th><th>Median device time (µs)</th><th>Status</th></tr>")
-        for (name,n,median,status) in entries
+        println(io,"<table><tr><th>Function or blend mode</th><th>Inputs</th><th>Median device time (µs)</th><th>p95 (µs)</th><th>Definition</th><th>Status</th></tr>")
+        for row in entries
+            name,n,median,status = row
+            p95 = length(row)>=8 ? row[8] : "—"
             bar = isempty(median) ? "—" : "<meter max=$peak value=$median></meter> $median"
             println(io,"<tr><td>",html_escape(name),"</td><td>",html_escape(n),"</td><td>",bar,
+                    "</td><td>",html_escape(p95),"</td><td>",profile_source_link(dirname(tsv),row[6],row[7]),
                     "</td><td>",html_escape(status),"</td></tr>")
         end
         println(io,"</table>")
@@ -67,7 +98,7 @@ function gpu_html(tsv)
                     "<p>This inventory includes host operations such as file I/O and window management.</p>",
                     "<table><tr><th>Method</th><th>Defined at</th></tr>")
             for (method,file,line,_) in missing
-                println(io,"<tr><td>",html_escape(method),"</td><td>",html_escape(file),":",line,"</td></tr>")
+                println(io,"<tr><td>",html_escape(method),"</td><td>",profile_source_link(dirname(tsv),file,line),"</td></tr>")
             end
             println(io,"</table></details>")
         end

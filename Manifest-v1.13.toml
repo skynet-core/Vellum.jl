@@ -2,7 +2,7 @@
 
 julia_version = "1.13.4"
 manifest_format = "2.1"
-project_hash = "8d6a6a014b386c3af79233cfd338d3c3ab9c1233"
+project_hash = "b7f493942e198dbd550174670bf2053e4a9b9e98"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -595,7 +595,7 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 version = "1.11.0"
 
 [[deps.Vellum]]
-deps = ["Base64", "ColorTypes", "FreeType2_jll", "FriBidi_jll", "GLFW_jll", "HarfBuzz_jll", "JSON", "JpegTurbo", "Libdl", "Libglvnd_jll", "LinearAlgebra", "OpenCV_jll", "PNGFiles", "SHA", "Skia", "StaticArrays", "Wasmtime_jll", "Wayland_jll", "XML", "Xorg_libX11_jll"]
+deps = ["Base64", "ColorTypes", "FreeType2_jll", "FriBidi_jll", "GLFW_jll", "HarfBuzz_jll", "JSON", "JpegTurbo", "Libdl", "Libglvnd_jll", "LinearAlgebra", "OpenCV_jll", "PNGFiles", "SHA", "Skia", "StaticArrays", "Wasmtime_jll", "Wayland_jll", "XML", "Xorg_libX11_jll", "libwebp_jll"]
 path = "."
 uuid = "273bb84c-244c-4f17-9eb9-5a651004d3c7"
 version = "0.1.0"

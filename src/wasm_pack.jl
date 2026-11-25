@@ -74,18 +74,6 @@ end
 _browser_op(op::GroupStart,cache) = (kind="push", alpha=op.opacity)
 _browser_op(op::GroupEnd,cache) = isempty(op.clips) ? (;kind="pop") : (kind="pop",mesh=_browser_clip_mesh(op.clips))
 
-"""Encode a crop once in the straight-alpha format accepted by browser ImageData."""
-function _browser_pixels(image)
-    # ImageData takes straight RGBA. The source image owns premultiplied bytes.
-    bytes = Vector{UInt8}(undef, length(image.data))
-    for (i, pixel) in enumerate(image)
-        c = toStraightAlpha(pixel)
-        k = 4i - 3
-        bytes[k], bytes[k+1], bytes[k+2], bytes[k+3] = c.r, c.g, c.b, c.a
-    end
-    return bytes
-end
-
 """Collect drawing operations for a browser scene and share immutable geometry and images across frames."""
 function _browser_scene(scene::Union{Frame,Canvas},crops=DocumentCrops(),images=IdDict{Image,Vector{UInt8}}(),meshes=Dict{Any,Vector{Float32}}())
     frame = scene isa Canvas ? snapshot(scene) : scene
@@ -93,7 +81,7 @@ function _browser_scene(scene::Union{Frame,Canvas},crops=DocumentCrops(),images=
     _svgPreScan(picture)
     operations = map(picture.ops) do op
         op isa DocumentImageOp || return _browser_op(op,meshes)
-        pixels = get!(() -> _browser_pixels(op.image),images,op.image)
+        pixels = get!(() -> _straight_rgba_bytes(op.image),images,op.image)
         (;kind="image",width=op.image.width,height=op.image.height,data=pixels,
           sampling=op.sampling,matrix=_browser_matrix(op.imageMat))
     end

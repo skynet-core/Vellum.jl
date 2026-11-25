@@ -1,6 +1,8 @@
 using Profile
 import JSON
 include("../report_html.jl")
+include("workloads.jl")
+include("method_timings.jl")
 
 """Identify shipped package and extension methods by their source directories."""
 package_source(path, roots) = any(root -> startswith(path,root),roots)
@@ -11,6 +13,7 @@ function package_methods(roots)
     return Set(m.method for m in matches if package_source(string(m.method.file),roots))
 end
 
+"""Capture warmed package call stacks, inventory method definitions and time the matched CPU workloads."""
 function cpu_profile(workload, dir)
     roots = [joinpath(pkgdir(Vellum),dir,"") for dir in ("src","ext")]
     (Sys.islinux() || Sys.isfreebsd()) && Vellum.OpenGLBackend.glx_extension()
@@ -57,6 +60,7 @@ function cpu_profile(workload, dir)
             println(io,m.sig,'\t',relpath(string(m.file),Base.pkgdir(Vellum)),'\t',m.line,'\t',get(counts,m,0))
         end
     end
+    cpu_method_timings(dir,ordered)
     # Speedscope sampled profile format, one stack per sample that entered package code.
     orderedframes = sort!(collect(frames);by=last)
     shared = [(name=k[1],file=k[2],line=k[3]) for (k,_) in orderedframes]
@@ -74,15 +78,14 @@ function cpu_profile(workload, dir)
                 "<p>The sampler observed ",length(counts)," of ",length(ordered),
                 " inventoried methods in the warm unit test workload. Inclusive counts include callees. Zero means the sampler did not observe this method.</p>",
                 "<p>The stack views retain time sampled inside Vellum. Gaps between package samples are omitted.</p>",
-                "<p><a href=\"cpu.cpuprofile\">Open the CPU profile in VS Code</a> · ",
+                "<p><a href=\"cpu-methods.html\">Direct CPU method timings and allocations</a> · <a href=\"cpu.cpuprofile\">Open the CPU profile in VS Code</a> · ",
                 "<a href=\"cpu.speedscope.json\">Speedscope profile</a></p>",
                 "<table><tr><th>Inclusive samples</th><th>Method</th><th>Defined at</th></tr>")
         peak = maximum(values(counts);init=1)
         for m in ordered
             count = get(counts,m,0)
             println(io,"<tr><td><meter max=",peak," value=",count,"></meter> ",count,
-                    "</td><td>",html_escape(m.sig),"</td><td>",html_escape(relpath(string(m.file),Base.pkgdir(Vellum))),
-                    ":",m.line,"</td></tr>")
+                    "</td><td>",html_escape(m.sig),"</td><td>",profile_source_link(dir,relpath(string(m.file),Base.pkgdir(Vellum)),m.line),"</td></tr>")
         end
         println(io,"</table></html>")
     end

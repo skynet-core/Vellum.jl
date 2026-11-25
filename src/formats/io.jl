@@ -6,9 +6,7 @@
 # Legacy dispatch remains for compatibility; bounded static-image operations
 # are in ImageCodecs. PNG (PNGFiles), SVG (XML) and JPEG (JpegTurbo) load
 # lazily; PPM, BMP, QOI and GIF have owned conversion implementations.
-# VTR-007 retires built-in WebP: its compatibility entry points now reject.
-# The old RIFF and WebpFormat branches therefore preserve an actionable
-# retirement diagnostic, not a silently advertised native capability.
+# WebP inspection, still images and sequences use the bounded codec provider.
 # GIF encoding is unsupported. The registry documents the admitted BMP/PPM
 # subsets separately; this legacy dispatcher is not a new qualification gate.
 #
@@ -70,8 +68,7 @@ function decodeImage(data::Vector{UInt8})
     if length(data) > 9 && String(data[1:2]) in PPM_SIGNATURES
         return decodePPM(data)
     end
-    if length(data) >= 30 && String(data[1:4]) == "RIFF" &&
-            String(data[9:12]) == "WEBP"
+    if ImageCodecs.webp_signature(data)
         return decodeWebP(data)
     end
     throw(ArgumentError("Unsupported image file format"))
@@ -100,8 +97,7 @@ function decodeImageDimensions(data::Vector{UInt8})
     if length(data) > 9 && String(data[1:2]) in PPM_SIGNATURES
         return decodePPMDimensions(data)
     end
-    if length(data) >= 30 && String(data[1:4]) == "RIFF" &&
-            String(data[9:12]) == "WEBP"
+    if ImageCodecs.webp_signature(data)
         return decodeWebPDimensions(data)
     end
     throw(ArgumentError("Unsupported image file format"))
@@ -141,8 +137,8 @@ function readImageDimensions(path::String)
 end
 
 """
-Encode an image as PNG, BMP, QOI, PPM or JPEG. GIF and WebP encoding
-raise an ArgumentError.
+Encode an image as PNG, BMP, QOI, PPM, JPEG or lossless WebP. GIF encoding
+raises an ArgumentError.
 """
 function encodeImage(image::Image, format::FileFormat)
     if format === PngFormat

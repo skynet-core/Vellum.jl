@@ -29,6 +29,8 @@ To compare font rasterization, instantiate the `tools/text` project and run `jul
 
 ## Tutorial acceptance
 
+The Linux x86-64 CI job opens a fresh Chromium profile and blocks remote requests before loading the export. It inspects the compiled WebAssembly module's imports and checks that the page embeds its scripts. For both a retained scene and a changing data model, it observes a Wasm caller on the stack of the Canvas fill, WebGL2 instanced draw and WebGPU render-pass draw, then reads the displayed pixels. The separate live Binance check enables network access for market data.
+
 Every tutorial must have one Julia drawing definition. A host adapter can deliver data and input. Vellum owns the drawing, Wasm compilation and graphics presentation. A tutorial is accepted after its scene has rendered through CPU, desktop OpenGL, native Vulkan and browser WebGL2. Retained-scene checks edit and remove a node, check the surviving pixels and revisit a previously displayed revision. Fix renderer defects in the library and add a regression there. The surface plot uses Vellum's CPU depth renderer for its mesh and the selected backend for the composed frame.
 
 Pass `--headed --tutorial-proof --workshops --live-binance` to the browser check to regenerate `reports/tutorials/index.html`, exercise the interactive controls and verify the Binance feed. The report uses pinned prices for like-for-like comparisons. The live check separately requires a change in the newest candle's trade count or timestamp.

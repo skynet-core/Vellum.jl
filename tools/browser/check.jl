@@ -22,6 +22,18 @@ function evaluate(ws, expr)
     return get(response["result"],"value",nothing)
 end
 
+"""Inspect the actual module imports and executable script origins in the exported page."""
+function check_wasm_boundary(ws, expected)
+    imports = evaluate(ws,@browser begin
+        @var encoded = document.getElementById("module").textContent
+        @var binary = Uint8Array.from(atob(encoded), c->c.charCodeAt(0))
+        @var compiled = @new WebAssembly.Module(binary)
+        return WebAssembly.Module.imports(compiled).map(i->[i["module"],i.name,i.kind])
+    end)
+    @test sort(imports) == [["vellum",name,"function"] for name in sort(expected)]
+    @test evaluate(ws,@browser document.querySelectorAll("script[src]").length) == 0
+end
+
 """Observe real browser API submissions and vertex uploads, including their Wasm caller."""
 const trace_device_calls = @browser ()->begin
     window.vellumTrace = d(canvas=0,webgl2=0,webgpu=0,uploads=0)
@@ -197,11 +209,13 @@ function check_live_market(ws,dir)
     @test evaluate(ws,@browser Number(document.querySelector("canvas").dataset.openTime)) % 300_000 == 0
 end
 
+"""Open local reports, follow a timing row to its covered source, and verify the measured distributions."""
 function check_reports(ws)
     root = dirname(dirname(@__DIR__))
     for (file, heading) in (("reports/coverage.html","Vellum unit test coverage"),
                             ("profiles/cpu.html","Vellum CPU profile"),
-                            ("profiles/gpu.html","Vellum GPU profile"))
+                            ("profiles/gpu.html","Vellum GPU profile"),
+                            ("profiles/cpu-methods.html","Vellum CPU method timings"))
         protocol(ws,"Page.navigate",(url="file://" * joinpath(root,file),))
         title = @browser document.title
         @test timedwait(() -> evaluate(ws,title)==heading,10) == :ok
@@ -211,6 +225,10 @@ function check_reports(ws)
                 section.querySelector("summary").click()
                 return section.open && section.querySelector(".line").getBoundingClientRect().height > 0
             end)
+        elseif endswith(file,"cpu-methods.html")
+            link = evaluate(ws,"document.querySelector('tr td a').href")
+            protocol(ws,"Page.navigate",(url=link,))
+            @test timedwait(()->evaluate(ws,"!!document.querySelector(':target') && document.querySelector(':target').getBoundingClientRect().height > 0"),10)===:ok
         else
             @test evaluate(ws,@browser document.querySelectorAll("tr meter").length) > 0
         end
@@ -225,6 +243,12 @@ function check_reports(ws)
     gpu = split.(readlines(joinpath(paths,"gpu.tsv"))[4:end],'\t')
     methods = Set(Tuple(row[1:3]) for row in cpu)
     @test all(row -> !startswith(row[6],"src/") || Tuple(row[5:7]) in methods,gpu)
+    direct = split.(readlines(joinpath(paths,"cpu-methods.tsv"))[2:end],'\t')
+    @test all(row -> Tuple(row[2:4]) in methods && parse(Int,row[6])==51 &&
+              0 < parse(Float64,row[7]) <= parse(Float64,row[8]) &&
+              parse(Int,row[9]) >= 0 && parse(Int,row[10]) >= 0,direct)
+    @test all(name->any(row->row[1]==name,direct),("blendNormal","decodeWebP","webp_signature"))
+    @test all(row -> row[4]=="measured" && 0 < parse(Float64,row[3]) <= parse(Float64,row[8]),gpu)
 end
 
 """Send fresh model data through a Wasm drawing layer and inspect pixels and API calls on each device."""
@@ -246,6 +270,7 @@ function check_data_devices(ws,dir)
         protocol(ws,"Page.navigate",(url="file://"*path,))
         ready = "location.pathname.endsWith('/live-$target.html') && document.querySelector('main')?.dataset.state==='ready'"
         timedwait(()->evaluate(ws,ready),15)===:ok || error("Live $target failed to initialize")
+        check_wasm_boundary(ws,["count","value","rect","label"])
         evaluate(ws,trace_device_calls*"()")
         evaluate(ws,"document.querySelector('canvas').click()")
         @test evaluate(ws,"vellumTrace.$target")==1
@@ -298,17 +323,21 @@ include("smoothing.jl")
         chrome_mode = "--headed" in ARGS ? String[] : ["--headless"]
         flags = filter(arg -> !(arg in ("--headed","--reports","--workshops","--live-binance","--tutorial-proof","--smoothing")),ARGS)
         # Compare screenshots in the same sRGB space as the reference pixels.
-        chrome = run(pipeline(`$browser $chrome_mode --no-first-run --no-default-browser-check --disable-background-networking --force-color-profile=srgb --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --user-data-dir=$profile --window-size=900,800 --enable-unsafe-webgpu $flags $page`;stderr=stderr);wait=false)
+        chrome = run(pipeline(`$browser $chrome_mode --no-first-run --no-default-browser-check --disable-background-networking --force-color-profile=srgb --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --user-data-dir=$profile --window-size=900,800 --enable-unsafe-webgpu $flags about:blank`;stderr=stderr);wait=false)
         try
             portfile = joinpath(profile,"DevToolsActivePort")
             timedwait(() -> isfile(portfile) || !process_running(chrome), 15) === :ok && isfile(portfile) ||
                 error("browser did not start")
             port = parse(Int,first(readlines(portfile)))
             tabs = JSON.parse(String(HTTP.get("http://127.0.0.1:$port/json/list").body))
-            tab = only(filter(t -> t["type"]=="page" && endswith(t["url"],"/gallery.html"), tabs))
+            tab = only(filter(t -> t["type"]=="page" && t["url"]=="about:blank", tabs))
             HTTP.WebSockets.open(tab["webSocketDebuggerUrl"]) do ws
                 protocol(ws, "Emulation.setDeviceMetricsOverride",(width=900,height=800,deviceScaleFactor=1,mobile=false))
+                protocol(ws,"Network.enable")
+                protocol(ws,"Network.setBlockedURLs",(urls=["http://*","https://*","ws://*","wss://*"],))
+                protocol(ws,"Page.navigate",(url="file://"*page,))
                 check_scene(ws,"red",[(4,4,rgbx(255,0,0,255))])
+                check_wasm_boundary(ws,["draw"])
                 @test evaluate(ws,"typeof window.PIXI === 'undefined'")
                 evaluate(ws,trace_device_calls*"()")
                 evaluate(ws,@browser document.querySelector("select").dispatchEvent(@new Event("change")))
@@ -367,6 +396,7 @@ include("smoothing.jl")
                 check_data_devices(ws,dir)
                 "--reports" in ARGS && check_reports(ws)
                 "--workshops" in ARGS && check_workshops(ws,dir)
+                protocol(ws,"Network.setBlockedURLs",(urls=String[],))
                 "--live-binance" in ARGS && check_live_market(ws,dir)
                 "--tutorial-proof" in ARGS && tutorial_proof(ws,dir)
                 "--smoothing" in ARGS && check_smoothing(ws,dir)
