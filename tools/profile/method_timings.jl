@@ -45,6 +45,45 @@ function codec_workloads(record)
     end
 end
 
+"""
+    desktop_image_workloads(record)
+
+Time the production crop, placement and page-identity methods over distinct source rectangles.
+Every batch consumes its results. Actual GPU queue and transfer timings use the device profiler.
+"""
+function desktop_image_workloads(record)
+    gl = Vellum.OpenGLBackend
+    pages = gl.RasterPages
+    crops = [(x,0,x+8,8) for x in 0:63]
+    image = Image(72,8)
+    for y in 1:8, x in 1:72
+        image[y,x] = rgbx(x,y,0,255)
+    end
+    dense = ImageData(image)
+    frame = drawing(size=(72,8)) do e
+        source = resource!(e,:image,dense)
+        for (l,t,r,b) in crops
+            draw_image!(e,source,(l,t,r-l,b-t);source=(l,t,r-l,b-t))
+        end
+    end
+    nodes = collect(frame.nodes)
+    ops = [n.operation::ImageRegion for n in nodes]
+    record("dense RGBA8 crop",Vellum._dense_crop,fill(dense,length(crops)),crops)
+    record("source crop layout",Vellum._image_crop_layout,ops,[n.id for n in nodes],
+           fill(72,length(ops)),fill(8,length(ops)))
+    record("desktop image placement",gl.image_placement,nodes,fill(frame,length(nodes)),fill(Transform2D(),length(nodes)))
+    record("desktop tile bounds",gl.desktop_page_grid,crops)
+    metadata = ImageMetadata(72,8;storage=:tiled)
+    sources = [RasterReference(1,1,i,metadata) for i in eachindex(crops)]
+    packed = pages.PageSource.(sources)
+    record("pack source revision",pages.PageSource,sources)
+    record("page source dimensions",pages.source_dimensions,packed)
+    record("recover source reference",pages.reference,packed)
+    keys = [pages.TileKey(src,mod(i,2),0) for (i,src) in pairs(packed)]
+    record("edge page dimensions",pages.dimensions,keys)
+    record("page cache partition",pages.page_partition,keys)
+end
+
 """Write CPU workload distributions, definition locations, and all inventory gaps to TSV and HTML."""
 function cpu_method_timings(dir,inventory)
     rows = NamedTuple[]
@@ -58,6 +97,7 @@ function cpu_method_timings(dir,inventory)
     end
     profile_workloads(record,4096)
     codec_workloads(record)
+    desktop_image_workloads(record)
     open(joinpath(dir,"cpu-methods.tsv"),"w") do io
         println(io,join(string.(keys(first(rows))),'\t'))
         foreach(row->println(io,join(values(row),'\t')),rows)

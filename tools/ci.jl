@@ -59,10 +59,12 @@ function desktop_test()
     Sys.islinux() || error("the desktop acceptance run requires Linux, X11 and Wayland")
     with_consumer() do cmd,root
         Pkg.add(["HarfBuzz_jll","Skia","Xorg_libX11_jll"])
-        test = joinpath(root,"test","gdk_window.jl")
         for host in ("x11","wayland")
-            run(addenv(`$cmd $test`,"GDK_BACKEND"=>host,"VELLUM_TEST_OPENGL"=>"required",
-                       "VELLUM_TEST_VULKAN"=>"required","VELLUM_OPENGL_LIBRARY"=>nothing,"VELLUM_VULKAN_LIBRARY"=>nothing))
+            for suite in ("gdk_window.jl","desktop_images.jl")
+                file = joinpath(root,"test",suite)
+                run(addenv(`$cmd $file`,"GDK_BACKEND"=>host,"VELLUM_TEST_OPENGL"=>"required",
+                           "VELLUM_TEST_VULKAN"=>"required","VELLUM_OPENGL_LIBRARY"=>nothing,"VELLUM_VULKAN_LIBRARY"=>nothing))
+            end
         end
     end
 end

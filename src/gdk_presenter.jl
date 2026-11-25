@@ -14,7 +14,7 @@ function gdk_render_frame(window::Ptr{Cvoid},::Ptr{Cvoid},::Ptr{Cvoid})::Cint
         height = ccall((:gdk_surface_get_height,VulkanBackend.GTK),Cint,(Ptr{Cvoid},),window)
         min(width,height) > 0 || return 0
         VulkanBackend.with_gdk_context() do
-            VulkanBackend.draw_retained!(p.surface,p.plan.frame,(Int(width),Int(height));to_window=true)
+            VulkanBackend.draw_retained!(p.surface,p.plan,(Int(width),Int(height));to_window=true)
         end
     catch err
         p.failure = CapturedException(err,catch_backtrace())
@@ -23,12 +23,13 @@ function gdk_render_frame(window::Ptr{Cvoid},::Ptr{Cvoid},::Ptr{Cvoid})::Cint
 end
 
 """
-    GdkPresenter(window::Ptr{Cvoid}; target)
+    GdkPresenter(window::Ptr{Cvoid}; target, raster_registry=nothing)
 
 Draw retained frames directly into a caller-owned GTK 4.14+ `GdkSurface*` on Linux.
 Choose `:opengl` or `:vulkan`. Reserve the live window for this renderer and call
 `present!(presenter, frame)` when the drawing changes. The host dispatches its
-usual GTK events. Use a pointer from the same GTK runtime as the presenter.
+usual GTK events. Supply a revision resolver for tiled image resources.
+Use a pointer from the same GTK runtime as the presenter.
 Vellum handles expose and resize using the latest frame.
 Call `close(presenter)` on the GTK main thread before destroying the window.
 """
@@ -39,7 +40,7 @@ mutable struct GdkPresenter{B<:Backend} <: Presenter
     plan::Union{PreparedFrame{B},Nothing}
     signal::Culong
     failure::Union{CapturedException,Nothing}
-    function GdkPresenter(window::Ptr{Cvoid};target::Symbol)
+    function GdkPresenter(window::Ptr{Cvoid};target::Symbol,raster_registry=nothing)
         window != C_NULL || throw(ArgumentError("a live GdkSurface pointer is required"))
         target in (:opengl,:vulkan) || throw(ArgumentError("expected :opengl or :vulkan"))
         Sys.islinux() || throw(ArgumentError("this GDK window provider requires Linux"))
@@ -47,8 +48,8 @@ mutable struct GdkPresenter{B<:Backend} <: Presenter
         haskey(gdk_windows,window) && throw(ArgumentError("window already has a Vellum presenter"))
         ccall((:gdk_surface_is_destroyed,VulkanBackend.GTK),Cint,(Ptr{Cvoid},),window) == 0 ||
             throw(ArgumentError("GDK window is destroyed"))
-        backend = target === :opengl ? OpenGLBackend.DesktopBackend() : VulkanBackend.DesktopBackend()
-        surface = VulkanBackend.with_gdk_context(() -> VulkanBackend.open_desktop_surface((1,1),window,target))
+        backend = target === :opengl ? OpenGLBackend.DesktopBackend(;raster_registry) : VulkanBackend.DesktopBackend(;raster_registry)
+        surface = VulkanBackend.with_gdk_context(() -> VulkanBackend.open_desktop_surface((1,1),window,target;backend))
         p = new{typeof(backend)}(window,backend,surface,nothing,0,nothing)
         try
             gdk_windows[window] = p
@@ -83,6 +84,7 @@ to inspect submission or a deferred render error. A different frame can retry.
 """
 function present!(p::GdkPresenter,frame::Frame)
     VulkanBackend.check_open(p.surface)
+    p.surface.drawing && throw(ArgumentError("GDK draw is recording"))
     ccall((:gdk_surface_is_destroyed,VulkanBackend.GTK),Cint,(Ptr{Cvoid},),p.window) == 0 ||
         throw(ArgumentError("GDK window is destroyed"))
     if !isnothing(p.plan) && p.plan.frame === frame
@@ -122,6 +124,7 @@ thread. Repeated close is safe. The host keeps ownership of its window.
 function Base.close(p::GdkPresenter)
     VulkanBackend.main_thread()
     p.surface.renderer == C_NULL && return
+    p.surface.drawing && throw(ArgumentError("GDK draw is recording"))
     if !iszero(p.signal)
         ccall((:g_signal_handler_disconnect,VulkanBackend.GTK),Cvoid,(Ptr{Cvoid},Culong),p.window,p.signal)
         p.signal = 0

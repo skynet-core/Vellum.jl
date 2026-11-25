@@ -8,13 +8,12 @@ const GLXRenderer = Vellum.OpenGLBackend.glx_extension()
 const timer_gl = GLXRenderer.libGL
 
 """Collect one submission between GPU timestamps and measure host readback after completion."""
-function timed_draw(surface, frame, queries)
+function timed_draw(surface, plan, queries)
     native = surface.native
     sample = GLXRenderer.with_context(native) do
-        native.valid = false
         ccall((:glQueryCounter,timer_gl),Cvoid,(Cuint,Cuint),queries[1],0x8e28)
         start = time_ns()
-        submit = @timed GLXRenderer.submit_frame!(native,frame,false)
+        submit = @timed submit!(plan.backend,surface,plan)
         stop = time_ns()
         ccall((:glQueryCounter,timer_gl),Cvoid,(Cuint,Cuint),queries[2],0x8e28)
         first_gpu,last_gpu = map(queries) do id
@@ -24,8 +23,7 @@ function timed_draw(surface, frame, queries)
         end
         ccall((:glGetError,timer_gl),Cuint,()) == 0 || error("GL timestamp query failed")
         last_gpu > first_gpu || error("OpenGL timestamps did not advance")
-        native.valid = true
-        native.frames += 1
+        wait(submit.value)
         (;start,stop,first_gpu,last_gpu,submit_bytes=submit.bytes)
     end
     read_start = time_ns()
@@ -92,6 +90,7 @@ function profile_gl(dir)
     end
     expected = rasterize(frame)
     surface = render(frame;backend=Vellum.OpenGLBackend.DesktopBackend())
+    plan = prepare(surface.backend,frame)
     try
         rows = GLXRenderer.with_context(surface.native) do
             bits = Ref{Cint}()
@@ -101,7 +100,7 @@ function profile_gl(dir)
             ccall((:glGenQueries,timer_gl),Cvoid,(Cint,Ptr{Cuint}),2,ids)
             try
                 samples = map(1:35) do _
-                    row,image = timed_draw(surface,frame,ids)
+                    row,image = timed_draw(surface,plan,ids)
                     all(i -> abs(Int(expected.data[i])-Int(image.data[i])) <= 1,eachindex(image.data)) ||
                         error("profiled GPU output differs from the reference")
                     row
@@ -113,6 +112,7 @@ function profile_gl(dir)
         end
         write_gl_profile(dir,rows,Vellum.OpenGLBackend.statistics(surface))
     finally
+        close(plan)
         close(surface)
     end
 end

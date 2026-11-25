@@ -58,6 +58,49 @@ Call `present!` again when your model produces a new frame. Updates before the n
 
 From an event handler after redraw, inspect `presentation_statistics(presenter)` for the submitted revision, logical window size, native renderer name and number of reused nodes. Close the presenter before the host destroys its surface. You can attach a new presenter to the same live window. The display device and compositor handle scanout. [GDK surface](https://docs.gtk.org/gdk4/class.Surface.html) · [GSK window rendering](https://docs.gtk.org/gsk4/method.Renderer.render.html)
 
+## Keep image tiles on the desktop GPU
+
+Keep the surface open across edits. A desktop backend with a raster registry can draw an immutable tiled source. Set `tile_size=64` and `share_pages=true` on an owned revision to reuse unchanged tile identities. The renderer uploads each changed page and samples across page boundaries. The following example changes the right half from blue to green. Its second draw uploads 256 bytes.
+
+```julia
+using Vellum
+tiles = Vellum.ImageTiles
+registry = tiles.RasterRegistry(namespace=17, source_bytes=65536,
+                               max_assets=2, max_revisions=4, max_leases=16)
+provider = Vellum.OpenGLBackend   # Vellum.VulkanBackend uses the same drawing code
+backend = provider.DesktopBackend(raster_registry=registry)
+surface = make_surface(backend, (256, 32))
+page(r, g, b) = tiles.RgbaTile(64, 1, repeat(UInt8[r, g, b, 255], 64))
+left = page(255, 0, 0)
+try
+    for right in (page(0, 0, 255), page(0, 255, 0))
+        source = tiles.OwnedTileRevision(128, 1, [((0, 0), left), ((1, 0), right)];
+                                         tile_size=64, share_pages=true)
+        descriptor, pin = tiles.publish_revision!(registry, source)
+        try
+            frame = drawing(size=(256, 32)) do e
+                draw_image!(e, resource!(e, :image, descriptor), (0, 0, 256, 32))
+            end
+            plan = prepare(backend, frame)
+            try
+                execute!(backend, surface, plan)
+            finally
+                close(plan)
+            end
+            @show provider.statistics(surface).uploaded_bytes  # 512, then 768
+            @show readback(surface)[16, 200]
+        finally
+            close(pin)
+        end
+    end
+finally
+    close(surface)
+    close(registry)
+end
+```
+
+On the GLX OpenGL backend, `token = submit!(backend, surface, frame)` queues one candidate and returns a GPU fence token. Readback still returns the previous completed frame. Call `completed(token)` to poll, `wait(token)` to wait up to one second, or `cancel!(token)` to discard the candidate. Keep these operations on the surface's creating thread. The GSK Vulkan provider currently supports synchronous offscreen execution. Pass the same registry to `GdkPresenter(window_pointer; target=:vulkan, raster_registry=registry)` for event-driven window drawing.
+
 ## Register a format
 
 With `libwebp_jll` added to the active project, WebP supports still and animated input. For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.

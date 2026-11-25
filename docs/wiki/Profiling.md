@@ -15,6 +15,8 @@ To profile the warmed test workload, start Julia with the checkout active and ru
 
 Open `profiles/cpu-methods.html` for directly timed workloads and `profiles/cpu-methods.tsv` for their source signatures, sample sizes and revision. The runner uses prepared inputs and an output buffer, warms each workload, and times 51 batches. Median and p95 report nanoseconds per input, including the loop and output store. Allocation counts and bytes are per batch. The table lists methods still awaiting a direct measurement.
 
+For a tiled desktop image, look up the crop layout, page bounds, edge-page dimensions and cache partition workloads in this table. The renderer's `statistics(surface).uploaded_bytes` counts source bytes transferred, including abandoned candidates. Compare it with `committed_upload_bytes` to see how much upload work belonged to published frames.
+
 ## Time a Wasm frame on each browser backend
 
 From the checkout, run the browser integration suite with its profiling flag on a desktop graphics driver. This workload uses a Julia `DataDrawing` with 256 rectangles and replays it through Vellum's production Wasm program on Canvas 2D, WebGL2 and WebGPU.

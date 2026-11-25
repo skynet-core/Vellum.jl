@@ -1,9 +1,29 @@
-"""Render portable vector frames through the desktop's Vulkan-enabled GTK 4.14+ scene renderer."""
+"""
+    DesktopBackend(; device=:auto, raster_registry=nothing)
+
+Render through the desktop's Vulkan-enabled GTK 4.14+ scene renderer.
+Supply a revision resolver to draw tiled images from immutable source pages.
+"""
 struct DesktopBackend <: Vellum.Backend
-    function DesktopBackend(;device=:auto)
+    raster_registry::Union{Nothing,Vellum.ImageTiles.AbstractRasterResolver}
+    function DesktopBackend(;device=:auto,raster_registry=nothing)
         device === :auto || throw(ArgumentError("the GSK Vulkan provider uses the display device and requires device=:auto"))
-        new()
+        new(raster_registry)
     end
+end
+
+"""A retained GTK drawing node and the source textures needed to redraw or revise it."""
+struct DeviceNode
+    semantic::Vellum.SemanticNode
+    pointer::Ptr{Cvoid}
+    textures::Set{OpenGLBackend.DesktopTextureKey}
+end
+
+"""A transaction's native source textures and the number of bytes supplied by Julia."""
+mutable struct SourceTextures
+    images::Dict{OpenGLBackend.DesktopTextureKey,Ptr{Cvoid}}
+    uploaded_bytes::Int
+    pages::Int
 end
 
 """System GTK runtime supplying the display's Vulkan integration. Loaded on the first native call."""
@@ -18,13 +38,17 @@ end
 
 """A desktop Vulkan renderer, its latest texture and retained top-level GSK drawing nodes."""
 mutable struct DesktopSurface <: Vellum.Surface
+    backend::Vellum.Backend
     size::Tuple{Int,Int}
     renderer::Ptr{Cvoid}
     texture::Ptr{Cvoid}
-    nodes::Dict{UInt64,Tuple{Vellum.SemanticNode,Ptr{Cvoid}}}
+    nodes::Dict{UInt64,DeviceNode}
     frame::Union{Nothing,Vellum.Frame}
     draws::Int
     reused::Int
+    sources::SourceTextures
+    drawing::Bool
+    uploaded_bytes::Int
 end
 
 """Require the GTK main thread before creating or accessing desktop Vulkan objects."""
@@ -39,11 +63,15 @@ function check_open(s::DesktopSurface)
 end
 
 """Operations admitted by the Vulkan scene renderer, including captured font outlines."""
-Vellum.capabilities(::DesktopBackend) = Vellum.capabilities(OpenGLBackend.DesktopBackend())
+Vellum.capabilities(b::DesktopBackend) = Vellum.capabilities(OpenGLBackend.DesktopBackend(raster_registry=b.raster_registry))
+
+"""Pin the exact source revisions of a Vulkan plan until its owner closes the plan."""
+Vellum.prepare_retention(b::DesktopBackend,frame::Vellum.Frame) =
+    Vellum.prepare_retention(OpenGLBackend.DesktopBackend(raster_registry=b.raster_registry),frame)
 
 """Realize an explicit Vulkan renderer on the default desktop display, failing if the driver is unavailable."""
-function Vellum.make_surface(::DesktopBackend,size)
-    return with_gdk_context(() -> open_desktop_surface(size))
+function Vellum.make_surface(backend::DesktopBackend,size)
+    return with_gdk_context(() -> open_desktop_surface(size;backend))
 end
 
 """Restore GDK's graphics binding after probing the display, drawing or downloading a texture."""
@@ -67,7 +95,7 @@ function with_gdk_context(f)
 end
 
 """Realize the requested GSK renderer for a borrowed GDK window or offscreen textures."""
-function open_desktop_surface(size,window=C_NULL,target=:vulkan)
+function open_desktop_surface(size,window=C_NULL,target=:vulkan;backend=DesktopBackend())
     dims = Vellum.checked_dimensions(size...)
     ccall((:gtk_init_check,GTK),Cint,()) != 0 || throw(ArgumentError("GSK requires an accessible desktop display"))
     ccall((:gtk_check_version,GTK),Cstring,(Cuint,Cuint,Cuint),4,14,0) == C_NULL ||
@@ -101,7 +129,7 @@ function open_desktop_surface(size,window=C_NULL,target=:vulkan)
         end
         error("GTK could not realize its $target renderer: $detail")
     end
-    return DesktopSurface(dims,renderer,C_NULL,Dict(),nothing,0,0)
+    return DesktopSurface(backend,dims,renderer,C_NULL,Dict(),nothing,0,0,SourceTextures(Dict(),0,0),false,0)
 end
 
 """Append a winding-aware vector mask and leave its content open until the matching snapshot pop."""
@@ -148,17 +176,84 @@ function append_brush(snap,brush,state,viewport,bounds)
     end
 end
 
-"""Upload a dense image and append a sampled texture with its clip, opacity and affine transform."""
-function append_image(snap,node,frame,viewport)
-    p = OpenGLBackend.image_placement(node,frame,viewport)
-    isnothing(p) && return
-    image = p.image
-    bytes = ccall((:g_bytes_new,GTK),Ptr{Cvoid},(Ptr{UInt8},Csize_t),image.data,length(image.data))
-    texture = try
-        ccall((:gdk_memory_texture_new,GTK),Ptr{Cvoid},(Cint,Cint,Cint,Ptr{Cvoid},Csize_t),
-              image.width,image.height,2,bytes,4image.width)
+"""Return an owned node covering an empty frame or source crop with transparent pixels."""
+transparent_node(bounds) = ccall((:gsk_color_node_new,GTK),Ptr{Cvoid},
+    (Ref{NTuple{4,Cfloat}},Ref{NTuple{4,Cfloat}}),(0f0,0f0,0f0,0f0),bounds)
+
+"""Render a node into an owned renderer texture and release the supplied node reference."""
+function render_texture(renderer,root,bounds)
+    root == C_NULL && (root = transparent_node(bounds))
+    try
+        texture = ccall((:gsk_renderer_render_texture,GTK),Ptr{Cvoid},
+                        (Ptr{Cvoid},Ptr{Cvoid},Ref{NTuple{4,Cfloat}}),renderer,root,bounds)
+        texture != C_NULL || error("GSK texture rendering failed")
+        return texture
+    finally
+        drop_node(root)
+    end
+end
+
+"""Release one owned GDK texture or GLib object."""
+unref_object(object) = ccall((:g_object_unref,GTK),Cvoid,(Ptr{Cvoid},),object)
+
+"""Retain a native source texture for a subsequent draw transaction."""
+ref_object(object) = ccall((:g_object_ref,GTK),Ptr{Cvoid},(Ptr{Cvoid},),object)
+
+"""Upload packed RGBA8 bytes and return the owned renderer texture used by subsequent draws."""
+function upload_texture(renderer,pixels,size)
+    w,h = size
+    bytes = GC.@preserve pixels ccall((:g_bytes_new,GTK),Ptr{Cvoid},(Ptr{UInt8},Csize_t),pointer(pixels),sizeof(pixels))
+    memory = try
+        ccall((:gdk_memory_texture_new,GTK),Ptr{Cvoid},(Cint,Cint,Cint,Ptr{Cvoid},Csize_t),w,h,2,bytes,4w)
     finally
         ccall((:g_bytes_unref,GTK),Cvoid,(Ptr{Cvoid},),bytes)
+    end
+    try
+        bounds = (0f0,0f0,Float32(w),Float32(h))
+        node = ccall((:gsk_texture_node_new,GTK),Ptr{Cvoid},(Ptr{Cvoid},Ref{NTuple{4,Cfloat}}),memory,bounds)
+        return render_texture(renderer,node,bounds)
+    finally
+        unref_object(memory)
+    end
+end
+
+"""Track a node's source dependency and acquire its input texture exactly once per frame."""
+function resident_texture!(load,s,candidate,used,key,size)
+    push!(used,key)
+    return get!(candidate.images,key) do
+        OpenGLBackend.reserve_desktop_page!(candidate,key)
+        haskey(s.sources.images,key) && return ref_object(s.sources.images[key])
+        pixels = load()
+        texture = upload_texture(s.renderer,pixels,size)
+        s.uploaded_bytes += sizeof(pixels)
+        candidate.uploaded_bytes += sizeof(pixels)
+        return texture
+    end
+end
+
+"""Assemble a sampled crop from resident GPU page textures before interpolating across their joins."""
+function tiled_texture(s,candidate,used,p,retention)
+    root = recorded_node() do snap
+        OpenGLBackend.visit_desktop_pages(retention,p) do key,(x,y),load
+            w,h = OpenGLBackend.RasterPages.dimensions(key)
+            texture = resident_texture!(load,s,candidate,used,key,(w,h))
+            rect = Float32.((x,y,w,h))
+            ccall((:gtk_snapshot_append_scaled_texture,GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid},Cint,Ref{NTuple{4,Cfloat}}),
+                  snap,texture,1,rect)
+        end
+    end
+    return render_texture(s.renderer,root,(0f0,0f0,Float32.(p.size)...))
+end
+
+"""Append a resident source with its clip, opacity, sampling mode and physical transform."""
+function append_image(snap,node,frame,viewport,s,candidate,used,retention)
+    p = OpenGLBackend.image_placement(node,frame,viewport)
+    isnothing(p) && return
+    tiled = p.source isa Vellum.RasterReference
+    texture = if tiled
+        tiled_texture(s,candidate,used,p,retention)
+    else
+        resident_texture!(() -> Vellum._dense_crop(p.source,p.crop).data,s,candidate,used,(p.source,p.crop),p.size)
     end
     try
         isnothing(p.mask) || push_path(snap,p.mask)
@@ -168,7 +263,7 @@ function append_image(snap,node,frame,viewport)
             a,b,c,d,x,y = p.transform.coefficients
             ccall((:graphene_matrix_init_from_2d,GTK),Ptr{Cvoid},(Ptr{Cvoid},Cdouble,Cdouble,Cdouble,Cdouble,Cdouble,Cdouble),matrix,a,b,c,d,x,y)
             ccall((:gtk_snapshot_transform_matrix,GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid}),snap,matrix)
-            rect = (0f0,0f0,Float32(image.width),Float32(image.height))
+            rect = (0f0,0f0,Float32.(p.size)...)
             ccall((:gtk_snapshot_append_scaled_texture,GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid},Cint,Ref{NTuple{4,Cfloat}}),
                   snap,texture,node.operation.state.sampling===:nearest ? 1 : 0,rect)
         finally
@@ -177,25 +272,25 @@ function append_image(snap,node,frame,viewport)
             isnothing(p.mask) || ccall((:gtk_snapshot_pop,GTK),Cvoid,(Ptr{Cvoid},),snap)
         end
     finally
-        ccall((:g_object_unref,GTK),Cvoid,(Ptr{Cvoid},),texture)
+        tiled && unref_object(texture)
     end
 end
 
 """Record a prepared node and its clips into a GTK snapshot in physical pixel coordinates."""
-function append_node(snap,node,frame,viewport,bounds)
+function append_node(snap,node,frame,viewport,bounds,s,candidate,used,retention)
     op = node.operation
     layers = 0
     try
         if op isa Vellum.CompositeGroup
             ccall((:gtk_snapshot_push_opacity,GTK),Cvoid,(Ptr{Cvoid},Cdouble),snap,op.opacity)
             layers += 1
-            foreach(child -> append_node(snap,child,frame,viewport,bounds),op.nodes)
+            foreach(child -> append_node(snap,child,frame,viewport,bounds,s,candidate,used,retention),op.nodes)
         else
             for clip in op.state.clips
                 push_path(snap,OpenGLBackend.device_geometry(clip.path,viewport*clip.transform,clip.winding))
                 layers += 1
             end
-            op isa Vellum.ImageRegion && return append_image(snap,node,frame,viewport)
+            op isa Vellum.ImageRegion && return append_image(snap,node,frame,viewport,s,candidate,used,retention)
             push_path(snap,OpenGLBackend.node_geometry(node,frame,viewport))
             layers += 1
             append_brush(snap,op isa Vellum.StrokePath ? op.state.stroke : op.state.fill,op.state,viewport,bounds)
@@ -224,56 +319,69 @@ drop_node(p) = p == C_NULL || (ccall((:gsk_render_node_unref,GTK),Cvoid,(Ptr{Cvo
 """Submit the retained frame and atomically replace the completed texture and node cache."""
 function Vellum.execute!(backend::DesktopBackend,s::DesktopSurface,plan::Vellum.PreparedFrame)
     check_open(s)
-    plan.backend === backend || throw(ArgumentError("foreign Vulkan plan"))
-    return with_gdk_context(() -> draw_retained!(s,plan.frame))
+    s.backend === backend && plan.backend === backend || throw(ArgumentError("foreign Vulkan plan"))
+    return with_gdk_context(() -> draw_retained!(s,plan))
 end
 
 """Submit a retained tree to a window or texture. Rebuild size-dependent nodes after resize."""
-function draw_retained!(s,frame,size=s.size;to_window=false)
+function draw_retained!(s,plan,size=s.size;to_window=false)
+    s.drawing && throw(ArgumentError("GSK draw is already recording"))
+    frame = plan.frame
     viewport = Vellum.Transform2D(size[1]/frame.size[1],0,0,size[2]/frame.size[2],0,0)
     bounds = (0f0,0f0,Float32(size[1]),Float32(size[2]))
     reuse = s.size == size && s.frame !== nothing && s.frame.canvas == frame.canvas && s.frame.size == frame.size && s.frame.resources === frame.resources
     candidate = empty(s.nodes)
+    sources = SourceTextures(empty(s.sources.images),0,0)
     reused = 0
+    retention = Vellum.execution_retention(plan)
+    s.drawing = true
     try
         root = recorded_node() do snap
             for node in frame.nodes
                 entry = reuse ? get(s.nodes,node.id,nothing) : nothing
-                if entry !== nothing && first(entry) === node
-                    ptr = last(entry)
+                if entry !== nothing && entry.semantic === node
+                    ptr = entry.pointer
+                    used = entry.textures
+                    for key in used
+                        get!(sources.images,key) do
+                            OpenGLBackend.reserve_desktop_page!(sources,key)
+                            ref_object(s.sources.images[key])
+                        end
+                    end
                     ptr != C_NULL && ccall((:gsk_render_node_ref,GTK),Ptr{Cvoid},(Ptr{Cvoid},),ptr)
                     reused += 1
                 else
-                    ptr = recorded_node(child -> append_node(child,node,frame,viewport,bounds))
+                    used = Set{OpenGLBackend.DesktopTextureKey}()
+                    ptr = recorded_node(child -> append_node(child,node,frame,viewport,bounds,s,sources,used,retention))
                 end
-                candidate[node.id] = (node,ptr)
+                candidate[node.id] = DeviceNode(node,ptr,used)
                 ptr != C_NULL && ccall((:gtk_snapshot_append_node,GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid}),snap,ptr)
             end
         end
-        if root == C_NULL
-            root = ccall((:gsk_color_node_new,GTK),Ptr{Cvoid},(Ref{NTuple{4,Cfloat}},Ref{NTuple{4,Cfloat}}),
-                         (0f0,0f0,0f0,0f0),bounds)
-        end
-        texture = try
-            if to_window
+        texture = if to_window
+            root == C_NULL && (root = transparent_node(bounds))
+            try
                 ccall((:gsk_renderer_render,GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid},Ptr{Cvoid}),s.renderer,root,C_NULL)
                 C_NULL
-            else
-                result = ccall((:gsk_renderer_render_texture,GTK),Ptr{Cvoid},(Ptr{Cvoid},Ptr{Cvoid},Ref{NTuple{4,Cfloat}}),s.renderer,root,bounds)
-                result != C_NULL || error("Vulkan texture rendering failed")
-                result
+            finally
+                drop_node(root)
             end
-        finally
-            drop_node(root)
+        else
+            render_texture(s.renderer,root,bounds)
         end
         s.texture != C_NULL && ccall((:g_object_unref,GTK),Cvoid,(Ptr{Cvoid},),s.texture)
         s.texture,s.nodes,s.frame,candidate = texture,candidate,frame,s.nodes
+        sources.uploaded_bytes += s.sources.uploaded_bytes
+        s.sources,sources = sources,s.sources
         s.size = size
         s.draws += 1
         s.reused = reused
         return s
     finally
-        foreach(entry -> drop_node(last(entry)),values(candidate))
+        s.drawing = false
+        Vellum.close_retention(retention)
+        foreach(entry -> drop_node(entry.pointer),values(candidate))
+        foreach(unref_object,values(sources.images))
     end
 end
 
@@ -297,18 +405,27 @@ function download_texture(s)
     return image
 end
 
-"""Report the realized native renderer type, completed draws and nodes reused in the last draw."""
+"""
+    statistics(surface::DesktopSurface)
+
+Report the GSK renderer, completed draws, reused nodes and resident sources. The cumulative
+`uploaded_bytes` includes transfers from failed draws. `committed_upload_bytes` counts published draws.
+"""
 function statistics(s::DesktopSurface)
     check_open(s)
     name = ccall((:g_type_name_from_instance,GTK),Cstring,(Ptr{Cvoid},),s.renderer)
-    return (;renderer=unsafe_string(name),frames=s.draws,reused=s.reused)
+    return (;renderer=unsafe_string(name),frames=s.draws,reused=s.reused,s.uploaded_bytes,
+            committed_upload_bytes=s.sources.uploaded_bytes,resident_images=length(s.sources.images))
 end
 
 """Release all retained drawing nodes, the completed texture and the realized Vulkan renderer."""
 function Base.close(s::DesktopSurface)
     main_thread()
     s.renderer == C_NULL && return
-    foreach(entry -> drop_node(last(entry)),values(s.nodes))
+    s.drawing && throw(ArgumentError("GSK draw is recording"))
+    foreach(unref_object,values(s.sources.images))
+    empty!(s.sources.images)
+    foreach(entry -> drop_node(entry.pointer),values(s.nodes))
     empty!(s.nodes)
     s.texture != C_NULL && ccall((:g_object_unref,GTK),Cvoid,(Ptr{Cvoid},),s.texture)
     ccall((:gsk_renderer_unrealize,GTK),Cvoid,(Ptr{Cvoid},),s.renderer)

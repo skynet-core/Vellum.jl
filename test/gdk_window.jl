@@ -114,6 +114,35 @@ function x11_window_rgb(display,window,x,y)
     end
 end
 
+"""Present two tiled revisions at the current window size and check the transfer delta and visible output."""
+function check_window_images(p,registry,display,window,display_type)
+    tiles = Vellum.ImageTiles
+    page(color) = tiles.RgbaTile(64,1,repeat(UInt8[color...],64))
+    left = page((255,0,0,255))
+    for (i,color) in enumerate(((0,0,255,255),(0,255,0,255)))
+        source = tiles.OwnedTileRevision(128,1,[((0,0),left),((1,0),page(color))];tile_size=64,share_pages=true)
+        ref,pin = tiles.publish_revision!(registry,source)
+        frame = drawing(size=(128,1)) do e
+            draw_image!(e,resource!(e,:image,ref),(0,0,128,1))
+        end
+        before = presentation_statistics(p)
+        try
+            queue() = (@test present!(p,frame) === :queued)
+            display_type == "GdkWaylandDisplay" ? check_wayland_commit(queue,window) : queue()
+            @test wait_gdk(() -> presentation_statistics(p).frames > before.frames)
+            after = presentation_statistics(p)
+            @test after.resident_images == 2
+            @test after.uploaded_bytes-before.uploaded_bytes == (i==1 ? 2 : 1)*64*4
+            if display_type == "GdkX11Display"
+                @test wait_gdk(() -> x11_window_rgb(display,window,220,60)==color[1:3])
+                @test x11_window_rgb(display,window,50,60)==(255,0,0)
+            end
+        finally
+            close(pin)
+        end
+    end
+end
+
 """Exercise the public presenters on one caller-owned GDK toplevel, including resize and reattachment."""
 function test_gdk_window()
     @test_throws ArgumentError GdkPresenter(C_NULL;target=:vulkan)
@@ -129,6 +158,7 @@ function test_gdk_window()
     window != C_NULL || error("could not create test toplevel")
     layout = ccall((:gdk_toplevel_layout_new,TEST_GTK),Ptr{Cvoid},())
     frames = retained_panel()
+    registry = Vellum.ImageTiles.RasterRegistry(namespace=32,source_bytes=65536,max_assets=8,max_revisions=8,max_leases=32)
     dims = Cint[180,100]
     GC.@preserve dims try
         callback = @cfunction(test_toplevel_size,Cvoid,(Ptr{Cvoid},Ptr{Cvoid},Ptr{Cint}))
@@ -147,7 +177,7 @@ function test_gdk_window()
         for target in targets
             offscreen = rasterize(frames[2];target)
             @test offscreen[13,11] == rasterize(frames[2])[13,11] == rgbx(0,0,255,255)
-            p = GdkPresenter(window;target)
+            p = GdkPresenter(window;target,raster_registry=registry)
             try
                 @test_throws ArgumentError GdkPresenter(window;target)
                 @test present!(p,first(frames)) === :suspended
@@ -189,6 +219,7 @@ function test_gdk_window()
                     @test wait_gdk(() -> x11_window_rgb(display,window,240,35)==(0,0,255))
                 end
                 println(display_type," window resize and retained edits: ",presentation_statistics(p))
+                check_window_images(p,registry,display,window,display_type)
             finally
                 close(p)
             end
@@ -199,6 +230,7 @@ function test_gdk_window()
         end
         :opengl in targets && check_borrowed_gl_context(display,window)
     finally
+        close(registry)
         ccall((:gdk_toplevel_layout_unref,TEST_GTK),Cvoid,(Ptr{Cvoid},),layout)
         ccall((:gdk_surface_destroy,TEST_GTK),Cvoid,(Ptr{Cvoid},),window)
     end

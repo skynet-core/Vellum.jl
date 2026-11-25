@@ -161,11 +161,26 @@ invalid regions, and nonrepresentable image transforms during preflight.
 function _document_image(operation::ImageRegion, frame::Frame, node::UInt64, matrix::Mat3, crops::DocumentCrops)
     source = resource(frame, operation.image)
     source isa ImageData || throw(CapabilityError(node, :document_dense_image))
+    placement = _image_crop_layout(operation,node,source.width,source.height)
+    isnothing(placement) && return nothing
+    regions = get!(() -> Dict{NTuple{4,Int},Image}(),crops,source)
+    crop = get!(() -> _dense_crop(source,placement.crop),regions,placement.crop)
+    clip = placement.fractional ? PicClip(_document_path(rectangle_path(operation.destination...)),NonZero,matrix) : nothing
+    return DocumentImageOp(crop, _document_matrix(placement.transform,node), operation.state.sampling), clip
+end
+
+"""
+    _image_crop_layout(operation, node, source_width, source_height)
+
+Return the contributing texel bounds and the transform from crop pixels to frame coordinates.
+A fractional source edge requires clipping to the destination after sampling.
+"""
+function _image_crop_layout(operation::ImageRegion,node,source_width,source_height)
     sx, sy, sw, sh = operation.source
     x, y, width, height = operation.destination
     all(isfinite, operation.source) && all(isfinite, operation.destination) &&
         min(sx, sy, sw, sh, width, height) >= 0 &&
-        sx + sw <= source.width && sy + sh <= source.height ||
+        sx + sw <= source_width && sy + sh <= source_height ||
         throw(ArgumentError("invalid document region at image node $node"))
     min(sw, sh, width, height) == 0 && return nothing
 
@@ -174,24 +189,25 @@ function _document_image(operation::ImageRegion, frame::Frame, node::UInt64, mat
     scale_x, scale_y = width / sw, height / sh
     mapping = Transform2D(scale_x, 0, 0, scale_y,
         x + (left - sx) * scale_x, y + (top - sy) * scale_y)
-    image_matrix = _document_matrix(operation.state.transform * mapping, node)
-    regions = get!(() -> Dict{NTuple{4,Int},Image}(),crops,source)
-    crop = get!(regions, (left, top, right, bottom)) do
-        image = newImage(right - left, bottom - top)
-        pixels = codeunits(source.pixels.bytes)
-        row_bytes = 4 * image.width
-        for row in 0:(image.height - 1)
-            start = (top + row) * source.row_stride + 4 * left + 1
-            copyto!(image.data, row * row_bytes + 1, pixels, start, row_bytes)
-        end
-        return image
+    return (crop=(left,top,right,bottom), transform=operation.state.transform*mapping,
+            fractional=!all(isinteger,(sx,sy,sx+sw,sy+sh)))
+end
+
+"""
+    _dense_crop(source, crop) -> Image
+
+Copy the half-open texel rectangle from an immutable dense image into packed RGBA8 storage.
+"""
+function _dense_crop(source::ImageData,crop)
+    left,top,right,bottom = crop
+    image = newImage(right-left,bottom-top)
+    pixels = codeunits(source.pixels.bytes)
+    row_bytes = 4 * image.width
+    for row in 0:(image.height-1)
+        start = (top + row) * source.row_stride + 4 * left + 1
+        copyto!(image.data, row * row_bytes + 1, pixels, start, row_bytes)
     end
-    clip = if all(isinteger, (sx, sy, sx + sw, sy + sh))
-        nothing
-    else
-        PicClip(_document_path(rectangle_path(x, y, width, height)), NonZero, matrix)
-    end
-    return DocumentImageOp(crop, image_matrix, operation.state.sampling), clip
+    return image
 end
 
 """

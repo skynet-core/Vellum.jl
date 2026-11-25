@@ -46,6 +46,7 @@ end
 
 """Check graphics device selection, native rendering and window ownership."""
 function test_hosts()
+    @testset "Resident desktop images" test_desktop_images()
     @testset "Retained native revisions" begin
         test_retained_backends()
     end
@@ -126,6 +127,7 @@ end
 
 include("fixtures/retained_panel.jl")
 include("gdk_window.jl")
+include("desktop_images.jl")
 
 """Require actual native renderers and compare retained revision pixels on the same owned surface."""
 function test_retained_backends()
