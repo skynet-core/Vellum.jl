@@ -45,9 +45,9 @@ jobs:
           copyback: 'false'
           prepare: |
             set -eu
-            pkg install -y ca_root_nss git rust cmake pkgconf
+            pkg install -y ca_root_nss
             if [ "$EXPECTED_ARCH" = aarch64 ]; then
-              pkg install -y opencv
+              pkg install -y git rust cmake pkgconf opencv
             fi
             if [ "$EXPECTED_ARCH" = x86_64 ]; then
               fetch -o /tmp/julia.tgz https://julialang-s3.julialang.org/bin/freebsd/x64/1.13/julia-1.13.4-freebsd-x86_64.tar.gz

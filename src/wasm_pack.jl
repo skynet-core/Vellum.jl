@@ -1,6 +1,37 @@
 using LazyArtifacts: @artifact_str
 import JSON
-import Wasmtime
+import Wasmtime_jll
+
+"""Owned byte vector returned by the Wasmtime C API."""
+struct _WasmBytes
+    size::Csize_t
+    data::Ptr{UInt8}
+end
+
+"""Locate the bundled Wasmtime library, or the configured system build on FreeBSD ARM."""
+_wasmtime_library() = get(() -> Wasmtime_jll.libwasmtime, ENV, "LIBWASMTIME_LOCATION")
+
+"""Assemble WebAssembly text in process and copy the resulting module into Julia-owned memory."""
+function _wat2wasm(source::String)
+    Libdl.dlopen(_wasmtime_library()) do lib
+        bytes = Ref(_WasmBytes(0,C_NULL))
+        failure = ccall(Libdl.dlsym(lib,:wasmtime_wat2wasm),Ptr{Cvoid},
+                        (Ptr{UInt8},Csize_t,Ref{_WasmBytes}),source,ncodeunits(source),bytes)
+        try
+            if failure != C_NULL
+                ccall(Libdl.dlsym(lib,:wasmtime_error_message),Cvoid,
+                      (Ptr{Cvoid},Ref{_WasmBytes}),failure,bytes)
+                throw(ArgumentError(unsafe_string(bytes[].data,bytes[].size)))
+            end
+            return copy(unsafe_wrap(Vector{UInt8},bytes[].data,bytes[].size))
+        finally
+            ccall(Libdl.dlsym(lib,:wasm_byte_vec_delete),Cvoid,(Ref{_WasmBytes},),bytes)
+            if failure != C_NULL
+                ccall(Libdl.dlsym(lib,:wasmtime_error_delete),Cvoid,(Ptr{Cvoid},),failure)
+            end
+        end
+    end
+end
 
 include("browser_bindings.jl")
 include("browser_viewer.jl")
@@ -151,7 +182,7 @@ function _browser_wasm(scenes, transitions=nothing)
             (br $next))))
         """)
     write(wat, take!(entries), ")")
-    return collect(Wasmtime.wat2wasm(String(take!(wat))))
+    return _wat2wasm(String(take!(wat)))
 end
 
 """

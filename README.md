@@ -18,6 +18,8 @@ The HTML contains the WebAssembly module, scene data and browser renderer. Julia
 
 ## Interactive workshops
 
+Edit and run all eight tutorials in the [Docker playground](public/playground/readme.md). Its deployment guide covers the prebuilt images on GitHub Container Registry and local builds.
+
 | Try it | Julia script | IJulia notebook |
 | --- | --- | --- |
 | Hover live Binance BTC/USDT one-minute candles, inspect OHLC and volume, and move the chart between browser Wasm, Wayland and X11 | [Candlesticks](tutorials/candlesticks.jl) | [Run the notebook](tutorials/candlesticks.ipynb) |
@@ -32,7 +34,7 @@ From the checkout run `julia --project=. tutorials/candlesticks.jl` and open `ca
 
 ## Tests and visual reports
 
-The [Vellum guides](docs/wiki/Home.md) cover installation, testing, profiling, and drawing from an immutable frame into an owned surface.
+The [Vellum wiki](https://github.com/skynet-core/Vellum.jl/wiki) and its [in-repository guides](docs/wiki/Home.md) cover installation, testing, profiling, and drawing from an immutable frame into an owned surface.
 
 Run `using Pkg; Pkg.test()` with the repository project active. The generated reports open locally in a browser. To reproduce the desktop workload on Linux, set `ENV["VELLUM_TEST_GLFW"]="true"` and `ENV["VELLUM_TEST_WAYLAND"]="required"` in a Julia session with access to X11 and Wayland before running the tests or coverage tool.
 

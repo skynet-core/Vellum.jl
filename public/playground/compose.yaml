@@ -1,0 +1,62 @@
+name: vellum-playground
+x-worker-image: &worker-image ${VELLUM_IMAGE_PREFIX:-ghcr.io/skynet-core/vellum.jl}/playground-worker:${VELLUM_IMAGE_TAG:-latest}
+x-service-image: &service-image ${VELLUM_IMAGE_PREFIX:-ghcr.io/skynet-core/vellum.jl}/playground-service:${VELLUM_IMAGE_TAG:-latest}
+services:
+  worker-image:
+    profiles: [build]
+    image: *worker-image
+    build:
+      context: ../..
+      dockerfile: public/playground/Dockerfile
+      target: runtime
+
+  broker:
+    image: *service-image
+    build:
+      context: ../..
+      dockerfile: public/playground/Dockerfile
+      target: service
+    environment:
+      VELLUM_MODE: broker
+      VELLUM_BIND: 0.0.0.0
+      VELLUM_PORT: 8081
+      VELLUM_WORKER_IMAGE: *worker-image
+    # Only this fixed-command broker can create disposable jobs.
+    user: "0:0"
+    volumes:
+      - ${VELLUM_ENGINE_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    networks: [jobs]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD","julia","--startup-file=no","-e","using Sockets; close(connect(8081))"]
+      interval: 20s
+      timeout: 10s
+      start_period: 20s
+
+  web:
+    image: *service-image
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      VELLUM_MODE: web
+      VELLUM_BIND: 0.0.0.0
+    ports: ["${VELLUM_LISTEN:-127.0.0.1}:${VELLUM_PORT:-8080}:8080"]
+    networks: [front,jobs]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "julia", "--startup-file=no", "-e", "using Sockets; s=connect(8080); write(s,\"GET /health HTTP/1.0\\r\\n\\r\\n\"); @assert occursin(\"200\",readline(s)); close(s)"]
+      interval: 20s
+      timeout: 10s
+      start_period: 20s
+
+networks:
+  front: {}
+  jobs:
+    internal: true

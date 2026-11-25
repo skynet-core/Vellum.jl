@@ -1,0 +1,70 @@
+name: Playground images
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: playground-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    name: Build and exercise Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    env:
+      COMPOSE_FILE: public/playground/compose.yaml
+      VELLUM_IMAGE_TAG: sha-${{ github.sha }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Select repository package names
+        run: echo "VELLUM_IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Build worker and service
+        run: docker compose --profile build build worker-image broker
+      - name: Start the exact images to be published
+        run: docker compose up -d --no-build --pull never --wait --wait-timeout 180
+      - name: Execute Julia through the web service on both renderers
+        run: docker compose exec -T web julia --startup-file=no - < public/playground/smoke.jl
+      - name: Collect service logs on failure
+        if: failure()
+        run: docker compose logs broker web
+      - name: Stop the test deployment
+        if: always()
+        run: docker compose down
+      - name: Publish architecture images
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker compose --profile build push worker-image broker
+
+  publish:
+    name: Publish multi-platform images
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish matching service and worker tags
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for name in playground-worker playground-service; do
+            image="ghcr.io/${GITHUB_REPOSITORY,,}/$name"
+            tag="sha-$GITHUB_SHA"
+            docker buildx imagetools create -t "$image:$tag" -t "$image:latest" "$image:$tag-amd64" "$image:$tag-arm64"
+            docker buildx imagetools inspect "$image:$tag"
+          done

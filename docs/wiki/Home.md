@@ -4,6 +4,8 @@ These guides accompany the 0.1 development checkout. Start with a CPU image, the
 
 The [API reference](API-reference.md) explains how to browse the searchable reference and look up a definition in the Julia REPL or editor.
 
+Run the lessons in a browser with the [interactive playground and container deployment guide](https://github.com/skynet-core/Vellum.jl/blob/main/public/playground/readme.md).
+
 The [route tutorial](../../tutorials/route.jl) runs as a Julia script. Open the [interactive notebook](../../tutorials/route.ipynb) in Jupyter with a Julia kernel to edit the route and inspect the drawing inline.
 
 | Interactive workshop | Julia script | Jupyter notebook |

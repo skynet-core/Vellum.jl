@@ -20,7 +20,7 @@ function test_data_drawing()
     prog = Vellum.data_program(view)
     @test prog.layers == ["items"]
     @test "pos" in prog.fields && "label" in prog.fields
-    @test Set(e.name for e in Wasmtime.exports(Wasmtime.WasmtimeModule(Wasmtime.WasmEngine(),prog.bytes)).wasm_exports)==Set(["render"])
+    @test wasm_export_names(prog.bytes) == Set(["render"])
     frames = [drawing(view,model)]
     controls = [(label="Next",kind=:button,rect=(0,0,8,8),steps=1)]
     @test_throws ArgumentError InteractiveDrawing("timed",frames,controls,ones(Int,1,1),ones(Int,1,1);timers=[(-1,1)])

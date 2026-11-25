@@ -157,7 +157,7 @@ function data_program(view::DataDrawing)
         println(io,raw"(local.set $row (i32.add (local.get $row) (i32.const 1))) (br $next)))")
     end
     print(io,"))")
-    bytes = collect(Wasmtime.wat2wasm(String(take!(io))))
+    bytes = _wat2wasm(String(take!(io)))
     return (;bytes,fields,strings,layers=string.([layer.source for layer in view.layers]))
 end
 
