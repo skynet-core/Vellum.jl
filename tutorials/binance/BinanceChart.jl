@@ -101,7 +101,8 @@ function launch(symbol="BTCUSDT";view=chart_view(),host=:browser,renderer=host==
     host === :browser || throw(ArgumentError("expected :browser, :wayland or :x11"))
     mkpath(directory)
     path = joinpath(directory,"candlesticks.html")
-    config = (;symbol,urls...,controls,intervals,plot)
+    bundled_font_notice = read(joinpath(pkgdir(Vellum),"test","fixtures","LiberationSans-LICENSE.txt"),String)
+    config = (;symbol,urls...,controls,intervals,plot,bundled_font_notice)
     savehtml(path,view;target=renderer,config,driver=start_chart,module_path=joinpath(directory,"candlesticks.wasm"))
     if isdefined(Main,:IJulia) && Main.IJulia.inited
         src = "data:text/html;base64,"*base64encode(read(path))

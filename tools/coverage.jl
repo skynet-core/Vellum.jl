@@ -13,7 +13,7 @@ report = isempty(destinations) ? joinpath(root, "reports", default_file) : abspa
 mkpath(dirname(report))
 mktempdir() do scratch
     # Measure a fresh copy so old .cov files cannot inflate this run.
-    for name in ("Project.toml", "Manifest.toml", "Artifacts.toml")
+    for name in ("Project.toml", "Manifest.toml", "Artifacts.toml", "LICENSE", "NOTICE")
         cp(joinpath(root,name), joinpath(scratch,name))
     end
     manifest = "Manifest-v$(VERSION.major).$(VERSION.minor).toml"

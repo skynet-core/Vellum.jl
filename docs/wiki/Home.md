@@ -26,3 +26,5 @@ Each workshop writes a standalone HTML application and its Wasm module in the wo
 | [Testing](Testing.md) | Run unit tests, exercise native and browser integrations, and inspect missed lines. |
 | [Profiling](Profiling.md) | Measure allocations, inspect CPU stacks and read the GPU timing report. |
 | [Library usage](Library-usage.md) | Draw a frame, work with images and text, and manage a render surface. |
+
+The Vellum guides and tutorials are distributed under the [Apache License, Version 2.0](https://github.com/skynet-core/Vellum.jl/blob/main/LICENSE).

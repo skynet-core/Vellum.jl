@@ -18,6 +18,9 @@ function stage_wiki(destination)
     mkpath(destination)
     isempty(readdir(destination)) || throw(ArgumentError("wiki staging directory must be empty"))
     assets = mkdir(joinpath(destination,"assets"))
+    for name in ("LICENSE","NOTICE")
+        cp(joinpath(root,name),joinpath(destination,name))
+    end
     archive = "vellum-reference-$version.tar"
     Tar.create(build,joinpath(assets,archive))
     rewrites = Pair{String,String}[]

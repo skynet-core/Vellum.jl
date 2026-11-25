@@ -494,8 +494,13 @@ const _browser_start = @browser () -> begin
     end)
 end
 
-"""Embed the pinned Pixi runtime and its license for offline use in any Vellum browser host."""
+"""Embed Vellum's license and attribution alongside the licensed Pixi runtime in standalone exports."""
 function _write_pixi_runtime(io)
+    for name in ("NOTICE","LICENSE")
+        print(io,"<script type=text/plain id=vellum-",lowercase(name),">")
+        write(io,read(joinpath(pkgdir(Vellum),name)))
+        println(io,"</script>")
+    end
     package = joinpath(artifact"pixi", "package")
     runtime = read(joinpath(package, "dist", "pixi.min.js"), String)
     runtime = replace(runtime, "//# sourceMappingURL=pixi.min.js.map"=>"", r"(?i)</script"=>s"<\\/script")

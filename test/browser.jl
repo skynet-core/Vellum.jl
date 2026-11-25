@@ -101,6 +101,8 @@ function test_browser()
             for target in (:canvas,:webgl2,:webgpu,:compare)
                 @test savehtml(output,scenes;target) == output
                 html = read(output,String)
+                @test occursin(read(joinpath(pkgdir(Vellum),"LICENSE"),String),html)
+                @test occursin(read(joinpath(pkgdir(Vellum),"NOTICE"),String),html)
                 config = JSON.parse(match(r"<script id=gallery type=application/json>(.*?)</script>",html).captures[1])
                 @test config["labels"] == ["</script>","second"]
                 @test config["sizes"] == [[16,12],[9,7]]

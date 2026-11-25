@@ -46,6 +46,9 @@ end
 mktempdir() do scratch
     source = joinpath(scratch, "src")
     cp(joinpath(@__DIR__, "src"), source)
+    for name in ("LICENSE","NOTICE")
+        cp(joinpath(pkgdir(Vellum),name),joinpath(source,name))
+    end
     pages = reference_pages(source)
     withenv("VELLUM_TUTORIAL_OUTPUT"=>"apps","VELLUM_TUTORIAL_HOST"=>"browser") do
         Documenter.makedocs(

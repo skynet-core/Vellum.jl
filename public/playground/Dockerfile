@@ -1,8 +1,9 @@
 FROM julia:1.10.13-bookworm AS runtime
-LABEL org.opencontainers.image.source="https://github.com/skynet-core/Vellum.jl"
+LABEL org.opencontainers.image.source="https://github.com/skynet-core/Vellum.jl" \
+      org.opencontainers.image.licenses="Apache-2.0"
 ENV JULIA_DEPOT_PATH=/opt/depot: JULIA_PROJECT=/opt/vellum JULIA_CPU_TARGET=generic JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 WORKDIR /opt/vellum
-COPY Project.toml Manifest.toml Artifacts.toml ./
+COPY Project.toml Manifest.toml Artifacts.toml LICENSE NOTICE ./
 COPY src/ src/
 COPY ext/ ext/
 RUN ["julia","--startup-file=no","-e","using Pkg; Pkg.instantiate(); using Vellum; mktempdir() do dir; f=drawing(e->rectangle!(e,0,0,4,4;fill=Solid(1,0,0));size=(4,4)); savehtml(joinpath(dir,\"warm.html\"),f;target=:webgl2); end"]
