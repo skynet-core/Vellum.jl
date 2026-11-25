@@ -88,7 +88,7 @@ function _requireHarfBuzz()
     lock(_HB_POOL.guard) do
     global _HB_FUNCS
     _HB_FUNCS !== nothing && return
-    m = Base.require(_HB_PKGID)
+    m = _require_provider(_HB_PKGID)
     path = Base.invokelatest(_hbLibPath, m)
     # Libdl diagnostics name the path/symbol and the OS cause; let them
     # propagate. The handle must outlive the resolved pointers, so it is

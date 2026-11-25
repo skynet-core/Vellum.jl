@@ -5,6 +5,13 @@ import Libdl
 import FriBidi_jll
 using Base64: base64encode
 
+"""Load a selected provider or name the Julia package to add to the caller's environment."""
+function _require_provider(id::Base.PkgId)
+    isnothing(Base.locate_package(id)) && throw(ArgumentError(
+        "Install $(id.name) in the active Julia environment with Pkg.add(\"$(id.name)\") to use this provider."))
+    return Base.require(id)
+end
+
 import LinearAlgebra
 import LinearAlgebra: dot, normalize
 import LinearAlgebra.rotate!

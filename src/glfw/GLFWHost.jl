@@ -57,7 +57,7 @@ end
 function library_path()
     override = get(ENV, "VELLUM_GLFW_LIBRARY", "")
     isempty(override) || return override
-    glfw = Base.require(Base.PkgId(Base.UUID("0656b61e-2033-5cc2-a64a-77c0f6c09b89"), "GLFW_jll"))
+    glfw = Vellum._require_provider(Base.PkgId(Base.UUID("0656b61e-2033-5cc2-a64a-77c0f6c09b89"), "GLFW_jll"))
     return Base.invokelatest(glfw.get_libglfw_path)
 end
 

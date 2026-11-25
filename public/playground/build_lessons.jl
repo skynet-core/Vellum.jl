@@ -1,3 +1,4 @@
+pushfirst!(LOAD_PATH,@__DIR__)
 include("catalog.jl")
 include("render.jl")
 

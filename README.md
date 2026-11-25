@@ -30,7 +30,7 @@ Edit and run all eight tutorials in the [Docker playground](public/playground/re
 | Build a Liquid Glass component framework with reusable buttons, switches, sliders and a sound panel | [Framework tutorial](tutorials/liquid_glass.jl) | [Notebook](tutorials/liquid_glass.ipynb) |
 | Build a macOS-inspired glass toolbar with animated pointer and keyboard feedback | [Script](tutorials/glass_controls.jl) | [Notebook](tutorials/glass_controls.ipynb) |
 
-From the checkout run `julia --project=. tutorials/candlesticks.jl` and open `candlesticks.html`. The chart fetches public Binance market data without a key. Vellum compiles the shared drawing layers to Wasm for the browser. The same layers produce native frames. The browser uses the kline stream and refreshes from REST when needed. On a Linux desktop, set `ENV["VELLUM_TUTORIAL_HOST"] = "wayland"` or `"x11"` before including the chart script to open the same application in a native window.
+For the full workshops, instantiate the desktop project once with `julia --project=environments/desktop -e 'using Pkg; Pkg.instantiate()'`. From the checkout run `julia --project=environments/desktop tutorials/candlesticks.jl` and open `candlesticks.html`. The chart fetches public Binance market data without a key. Vellum compiles the shared drawing layers to Wasm for the browser. The same layers produce native frames. The browser uses the kline stream and refreshes from REST when needed. On a Linux desktop, set `ENV["VELLUM_TUTORIAL_HOST"] = "wayland"` or `"x11"` before including the chart script to open the same application in a native window.
 
 ## Tests and visual reports
 
@@ -69,7 +69,9 @@ The [browser integration check](tools/browser/check.jl) drives Chromium through 
 
 ## Native integrations
 
-Julia packages supply FreeType, FriBidi, HarfBuzz, GLFW, OpenCV and the Wayland client. On Linux, `WaylandSHM.Presenter(display, shm, surface; max_size)` presents CPU surfaces through Wayland shared memory. On an X11 display, `rasterize(frame; target=:opengl)` can render solid paths, strokes, clips and isolated groups through a first-party GLX/Skia backend. It owns its offscreen context and reads back premultiplied RGBA pixels. On a Linux desktop with Vulkan-enabled GTK 4.14+, `target=:vulkan` selects the native GSK Vulkan renderer. The extended bridge APIs remain available. The chart accepts a host and a renderer independently.
+The default installation supports headless CPU drawing, PNG/JPEG and Wasm export. The desktop project adds shaping, WebP and window providers. Applications can add individual providers and enable OpenCV separately. [Provider installation guide](docs/wiki/Building.md)
+
+On Linux, `WaylandSHM.Presenter(display, shm, surface; max_size)` presents CPU surfaces through Wayland shared memory. On an X11 display, `rasterize(frame; target=:opengl)` can render solid paths, strokes, clips and isolated groups through a first-party GLX/Skia backend. It owns its offscreen context and reads back premultiplied RGBA pixels. On a Linux desktop with Vulkan-enabled GTK 4.14+, `target=:vulkan` selects the native GSK Vulkan renderer. The extended bridge APIs remain available. The chart accepts a host and a renderer independently.
 
 The tutorial rendering report (`reports/tutorials/index.html`) compares each tutorial's Julia drawing on the CPU, native OpenGL, native Vulkan and WebGL2. Run the browser check with `--headed --tutorial-proof --workshops --live-binance` to regenerate the images and exercise the controls. The live chart uses Vellum's `DataDrawing` layer API. Its platform adapters deliver input and market data.
 

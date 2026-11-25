@@ -27,6 +27,25 @@ function build_test(kernel,arch)
     Pkg.build()
     Pkg.precompile(;strict=true)
     Pkg.test()
+    headless_test()
 end
 
-build_test(ARGS...)
+"""Install this checkout as a dependency of an empty project, then test it in an isolated process."""
+function headless_test()
+    root = dirname(@__DIR__)
+    previous = Base.active_project()
+    mktempdir() do consumer
+        try
+            Pkg.activate(consumer)
+            Pkg.develop(path=root)
+            cmd = `$(Base.julia_cmd()) --startup-file=no --project=$consumer $(joinpath(root,"test","headless.jl"))`
+            load_path = Sys.iswindows() ? "@;@stdlib" : "@:@stdlib"
+            run(addenv(cmd,"JULIA_LOAD_PATH"=>load_path,"DISPLAY"=>nothing,"WAYLAND_DISPLAY"=>nothing,
+                       "VELLUM_GLFW_LIBRARY"=>nothing))
+        finally
+            Pkg.activate(dirname(previous))
+        end
+    end
+end
+
+ARGS == ["--headless"] ? headless_test() : build_test(ARGS...)

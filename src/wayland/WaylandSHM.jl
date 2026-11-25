@@ -187,7 +187,6 @@ function Base.close(presenter::BridgePresenter)
 end
 
 if Sys.islinux()
-    using Wayland_jll: libwayland_client
     include("shared_memory.jl")
 end
 

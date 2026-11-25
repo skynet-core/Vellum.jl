@@ -17,7 +17,21 @@ image = rasterize(frame)
 savepng("first-frame.png", image)
 ```
 
-The CPU renderer can run in a headless process with its dependencies installed. Browser export embeds Vellum's own Canvas 2D, WebGL2 or WebGPU bindings alongside the Wasm drawing program. The geometry and shaders ship with the export. Open the file in a browser with the graphics APIs you want to exercise.
+## Select the providers for your application
+
+The root project installs the CPU renderer, PNG and JPEG codecs, font outline handling and the Wasm exporter. From a clean consumer project, `Pkg.develop(path="/path/to/Vellum.jl")` installs the same core. CI draws and reads back a PNG and exports a Wasm scene with the display variables unset, then checks the dependency graph for graphics drivers, window libraries and OpenCV.
+
+The checkout includes a desktop project for the native workshops. From the checkout root run `julia --project=environments/desktop -e 'using Pkg; Pkg.instantiate()'` once, then `julia --project=environments/desktop tutorials/liquid_glass.jl`. The project uses the local Vellum source. The drawing and backend selection APIs work in either project when their providers are installed.
+
+| Feature in your own Julia project | Packages to add with `Pkg.add` |
+| --- | --- |
+| Shape text with HarfBuzz | `HarfBuzz_jll` |
+| Decode and encode WebP, including animated input | `libwebp_jll` |
+| Draw to an offscreen desktop OpenGL surface through GLX | `Skia`, `Xorg_libX11_jll` |
+| Open a GLFW window or use Wayland shared-memory presentation | `GLFW_jll` for GLFW, `Wayland_jll` for shared memory |
+| Process images with OpenCV | `OpenCV_jll`. FreeBSD aarch64 uses OpenCV 4 from ports. |
+
+Browser export embeds Vellum's own Canvas 2D, WebGL2 or WebGPU bindings alongside the Wasm drawing program. The geometry and shaders ship with the export. Open the file in a browser with the graphics APIs you want to exercise.
 
 Desktop window integration requires an accessible display and the appropriate OS driver. The Linux Wayland shared-memory presenter borrows a host surface. The chart workshop can open either a Wayland or an X11 window. Offscreen desktop OpenGL on X11 uses a first-party GLX/Skia provider for solid paths, strokes, clips and isolated groups. The extended bridge profiles require compatible bridges. See the [usage guide](Library-usage.md) and [testing guide](Testing.md).
 

@@ -6,11 +6,32 @@ function wl_argument(x::Integer)
     ENDIAN_BOM == 0x04030201 ? word : word << (Sys.WORD_SIZE-32)
 end
 
-wl_version(proxy) = ccall((:wl_proxy_get_version,libwayland_client),UInt32,(Ptr{Cvoid},),proxy)
-wl_error(display) = ccall((:wl_display_get_error,libwayland_client),Cint,(Ptr{Cvoid},),display)
+"""Wayland client entry points and protocol interfaces used by the shared-memory presenter."""
+const CLIENT_SYMBOLS = (:wl_proxy_get_version, :wl_display_get_error, :wl_proxy_marshal_array_flags,
+                        :wl_proxy_add_listener, :wl_shm_pool_interface, :wl_buffer_interface)
+"""Native pointers held for the lifetime of the Julia-packaged Wayland client."""
+const ClientSymbols = NamedTuple{CLIENT_SYMBOLS,NTuple{length(CLIENT_SYMBOLS),Ptr{Cvoid}}}
+"""Lazy symbol table protected by the presenter's initialization lock."""
+const client_table = Ref{Union{Nothing,ClientSymbols}}(nothing)
+
+"""Resolve the optional client once, and publish its entry points only after all symbols are available."""
+function client_symbols()
+    lock(shm_guard) do
+        if isnothing(client_table[])
+            id = Base.PkgId(Base.UUID("a2964d1f-97da-50d4-b82a-358c7fce9d89"),"Wayland_jll")
+            provider = Vellum._require_provider(id)
+            handle = Base.invokelatest(getproperty,provider,:libwayland_client_handle)
+            client_table[] = ClientSymbols(map(name->Libdl.dlsym(handle,name),CLIENT_SYMBOLS))
+        end
+        return client_table[]::ClientSymbols
+    end
+end
+
+wl_version(proxy) = ccall(client_symbols().wl_proxy_get_version,UInt32,(Ptr{Cvoid},),proxy)
+wl_error(display) = ccall(client_symbols().wl_display_get_error,Cint,(Ptr{Cvoid},),display)
 function wl_request(proxy, opcode, args...; interface=C_NULL, destroy=false)
     words = UInt[wl_argument(x) for x in args]
-    ccall((:wl_proxy_marshal_array_flags,libwayland_client),Ptr{Cvoid},
+    ccall(client_symbols().wl_proxy_marshal_array_flags,Ptr{Cvoid},
           (Ptr{Cvoid},UInt32,Ptr{Cvoid},UInt32,UInt32,Ptr{UInt}),
           proxy,opcode,interface,wl_version(proxy),destroy,words)
 end
@@ -79,7 +100,7 @@ function Presenter(display::Ptr{Cvoid}, shm::Ptr{Cvoid}, surface::Ptr{Cvoid}; ma
             mapped == Ptr{Cvoid}(typemax(UInt)) && Base.systemerror("mmap",true)
             pool = C_NULL
             try
-                pool = wl_request(shm,0,C_NULL,Base.cconvert(Cint,fd(io)),bytes;interface=cglobal((:wl_shm_pool_interface,libwayland_client)))
+                pool = wl_request(shm,0,C_NULL,Base.cconvert(Cint,fd(io)),bytes;interface=client_symbols().wl_shm_pool_interface)
                 pool == C_NULL && error("Wayland SHM pool allocation failed")
                 data = unsafe_wrap(Vector{UInt32},Ptr{UInt32}(mapped),bytes÷4)
                 listener = Ref(@cfunction(buffer_released,Cvoid,(Ptr{Cvoid},Ptr{Cvoid})))
@@ -106,9 +127,9 @@ function prepare_buffer!(p::ShmPresenter, index, size)
     slot.size == size && return
     w,h = size
     buffer = wl_request(p.pool,0,C_NULL,4(index-1)*prod(p.limit),w,h,4w,0;
-                        interface=cglobal((:wl_buffer_interface,libwayland_client)))
+                        interface=client_symbols().wl_buffer_interface)
     buffer == C_NULL && error("Wayland buffer allocation failed")
-    status = ccall((:wl_proxy_add_listener,libwayland_client),Cint,
+    status = ccall(client_symbols().wl_proxy_add_listener,Cint,
                    (Ptr{Cvoid},Ref{Ptr{Cvoid}},Ptr{Cvoid}),buffer,p.listener,pointer_from_objref(slot))
     if status != 0
         wl_request(buffer,0;destroy=true)

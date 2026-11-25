@@ -18,7 +18,7 @@ The [route tutorial](../../tutorials/route.jl) runs as a Julia script. Open the 
 | Animate and scrub a translucent market panel | [Script](../../tutorials/glass_market.jl) | [Notebook](../../tutorials/glass_market.ipynb) |
 | Build a glass toolbar with hover, press, cancellation and keyboard focus | [Script](../../tutorials/glass_controls.jl) | [Notebook](../../tutorials/glass_controls.ipynb) |
 
-Each workshop writes a standalone HTML application and its Wasm module in the working directory. The plot and reading light run offline. The chart needs network access for Binance market data. In a checkout, use `julia --project=. tutorials/candlesticks.jl` to start with the chart.
+Each workshop writes a standalone HTML application and its Wasm module in the working directory. The plot and reading light run offline. The chart needs network access for Binance market data. In a checkout, use `julia --project=environments/desktop tutorials/candlesticks.jl` to start with the chart.
 
 | Guide | What you can do |
 | --- | --- |

@@ -47,7 +47,7 @@ end
 
 ## Register a format
 
-For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.
+With `libwebp_jll` added to the active project, WebP supports still and animated input. For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.
 
 ```julia
 using Vellum

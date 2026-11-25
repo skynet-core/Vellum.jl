@@ -22,7 +22,7 @@ end
 
 """Return the loaded JLL handle for an encoding or decoding operation."""
 function webp_handle(library)
-    package = Base.require(WEBP_PACKAGE)
+    package = Vellum._require_provider(WEBP_PACKAGE)
     return Base.invokelatest(getproperty,package,library)
 end
 

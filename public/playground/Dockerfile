@@ -6,6 +6,9 @@ WORKDIR /opt/vellum
 COPY Project.toml Manifest.toml LICENSE NOTICE ./
 COPY src/ src/
 COPY ext/ ext/
+COPY public/playground/Project.toml public/playground/Manifest.toml /opt/playground/
+RUN ["julia","--startup-file=no","--project=/opt/playground","-e","using Pkg; Pkg.instantiate()"]
+ENV JULIA_LOAD_PATH=@:/opt/playground:/opt/vellum:@stdlib
 RUN ["julia","--startup-file=no","-e","using Pkg; Pkg.instantiate(); using Vellum; mktempdir() do dir; f=drawing(e->rectangle!(e,0,0,4,4;fill=Solid(1,0,0));size=(4,4)); savehtml(joinpath(dir,\"warm.html\"),f;target=:webgl2); end"]
 COPY tutorials/ tutorials/
 COPY docs/lessons.jl docs/lessons.jl
@@ -18,10 +21,7 @@ FROM docker:28-cli AS engine
 FROM runtime AS service
 COPY --from=engine /usr/local/bin/docker /usr/local/bin/docker
 USER root
-COPY public/playground/Project.toml public/playground/Manifest.toml /opt/playground/
-RUN ["julia","--startup-file=no","--project=/opt/playground","-e","using Pkg; Pkg.instantiate()"]
 COPY public/playground/build_lessons.jl public/playground/catalog.jl /opt/playground/
-ENV JULIA_LOAD_PATH=/opt/playground:/opt/vellum:@stdlib
 RUN ["julia","--startup-file=no","/opt/playground/build_lessons.jl"]
 COPY public/playground/page.jl public/playground/server.jl public/playground/sketch.jl /opt/playground/
 USER 65532:65532

@@ -49,7 +49,7 @@ function _packaged_opencv()
             _system_cv[]
         end
     end
-    cv = Base.require(Base.PkgId(Base.UUID("33b9d88c-85f9-5d73-bd91-4e2b95a9aa0b"),"OpenCV_jll"))
+    cv = _require_provider(Base.PkgId(Base.UUID("33b9d88c-85f9-5d73-bd91-4e2b95a9aa0b"),"OpenCV_jll"))
     version = Base.pkgversion(cv)
     return _PackagedOpenCV(cv.libopencv_core_handle, cv.libopencv_imgproc_handle,
                            string(version.major, '.', version.minor, '.', version.patch))

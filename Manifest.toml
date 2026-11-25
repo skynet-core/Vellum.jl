@@ -2,7 +2,7 @@
 
 julia_version = "1.10.13"
 manifest_format = "2.0"
-project_hash = "e3a4991cb444642ce550963d200c5dd643951833"
+project_hash = "ab3ba0350d05c7702b7b9e06a08ae43973cdb3b4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -24,12 +24,6 @@ version = "1.0.9+0"
 git-tree-sha1 = "eb4cb44a499229b3b8426dcfb5dd85333951ff90"
 uuid = "fa961155-64e5-5f13-b03f-caf6b980ea82"
 version = "0.4.2"
-
-[[deps.Cairo_jll]]
-deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "Libdl", "Pixman_jll", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
-git-tree-sha1 = "0cfb779e24fdced77a05df1dbe99200821a9f563"
-uuid = "83423d85-b0ee-5818-9007-b63ccbeb887a"
-version = "1.18.8+1"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
@@ -70,28 +64,10 @@ version = "1.1.2+1"
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
-[[deps.Dbus_jll]]
-deps = ["Artifacts", "Expat_jll", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "473e9afc9cf30814eb67ffa5f2db7df82c3ad9fd"
-uuid = "ee1fde0b-3d02-5ea6-8484-8dfef6360eab"
-version = "1.16.2+0"
-
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
-
-[[deps.EpollShim_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "8a4be429317c42cfae6a7fc03c31bad1970c310d"
-uuid = "2702e6a9-849d-5ed8-8c21-79e8b8f9ee43"
-version = "0.0.20230411+1"
-
-[[deps.Expat_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "30fbbf8fb9d4e5d3264b4eb10c04f8a9ebaf9381"
-uuid = "2e619515-83b5-522b-bb60-26c02a35a201"
-version = "2.11.0+0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
@@ -114,12 +90,6 @@ git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.6"
 
-[[deps.Fontconfig_jll]]
-deps = ["Artifacts", "Bzip2_jll", "Expat_jll", "FreeType2_jll", "JLLWrappers", "Libdl", "Libuuid_jll", "Zlib_jll"]
-git-tree-sha1 = "8de1957ed91ce3a9b03882a5759c151929a9aa06"
-uuid = "a3f928ae-7b40-5064-980b-68af3947d34b"
-version = "2.18.4+0"
-
 [[deps.FreeType2_jll]]
 deps = ["Artifacts", "Bzip2_jll", "JLLWrappers", "Libdl", "Zlib_jll"]
 git-tree-sha1 = "d95a7a3a7e0f2fffc6291bd33035830aab01310b"
@@ -131,48 +101,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "e894be022a2eba58463939f1bf1f7f7006f27f52"
 uuid = "559328eb-81f9-559d-9380-de523a88c83c"
 version = "1.0.19+0"
-
-[[deps.GLFW_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Xorg_libXcursor_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll", "libdecor_jll", "xkbcommon_jll"]
-git-tree-sha1 = "64bbbb7d1499297751b536dd39c58b20750ab1db"
-uuid = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
-version = "3.5.1+0"
-
-[[deps.GettextRuntime_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Libiconv_jll"]
-git-tree-sha1 = "45288942190db7c5f760f59c04495064eedf9340"
-uuid = "b0724c58-0f36-5564-988d-3bb0596ebc4a"
-version = "0.22.4+0"
-
-[[deps.Giflib_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "a3efbbc027441271444dcd0c0a46f2d119dc4329"
-uuid = "59f7168a-df46-5410-90c8-f2779963d0ec"
-version = "6.1.3+0"
-
-[[deps.Glib_jll]]
-deps = ["Artifacts", "GettextRuntime_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libiconv_jll", "Libmount_jll", "PCRE2_jll", "Zlib_jll"]
-git-tree-sha1 = "ea9f1fb37ff10597353b56f3ba0ebd525acef6e0"
-uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
-version = "2.90.1+0"
-
-[[deps.Graphite2_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "69ffb934a5c5b7e086a0b4fee3427db2556fba6e"
-uuid = "3b182d85-2403-5c21-9c21-1e1f0cc25472"
-version = "1.3.16+0"
-
-[[deps.HarfBuzz_jll]]
-deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "Graphite2_jll", "JLLWrappers", "Libdl", "Libffi_jll"]
-git-tree-sha1 = "59d266e426ab9695f625fe2b6a51c2d3a04f1ecd"
-uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
-version = "100.15001.0+0"
-
-[[deps.ICU_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "b3d8be712fbf9237935bde0ce9b5a736ae38fc34"
-uuid = "a51ab1cf-af8e-5615-a023-bc2c838bba6b"
-version = "76.2.0+0"
 
 [[deps.ImageCore]]
 deps = ["ColorVectorSpace", "Colors", "FixedPointNumbers", "MappedArrays", "MosaicViews", "OffsetArrays", "PaddedViews", "PrecompileTools", "Reexport"]
@@ -213,24 +141,6 @@ git-tree-sha1 = "e06b451acfb1c6fa5ea753b5042207226271f455"
 uuid = "aacddb02-875f-59d6-b918-886e6ef4fbf8"
 version = "3.2.1+0"
 
-[[deps.LERC_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "6d7c65411dda4bfa0beb7490476122b4f805cf31"
-uuid = "88015f11-f218-50d7-93a8-a6af411a945d"
-version = "4.3.0+0"
-
-[[deps.LLVMOpenMP_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "e5b100780d4d30d63b4618d7930d48af409c1772"
-uuid = "1d63c593-3942-5779-bab2-d838dc0a180e"
-version = "23.1.1+0"
-
-[[deps.LazyJLLWrappers]]
-deps = ["Artifacts", "Libdl", "Pkg", "Preferences", "TOML"]
-git-tree-sha1 = "4753919f2a12d14862eab9e4e4cfa2ed08af48d3"
-uuid = "21706172-204c-4d4f-5420-656854206f44"
-version = "1.2.7"
-
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
@@ -257,42 +167,6 @@ version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
-
-[[deps.Libffi_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "c8da7e6a91781c41a863611c7e966098d783c57a"
-uuid = "e9f186c6-92d2-5b65-8a66-fee21dc1b490"
-version = "3.4.7+0"
-
-[[deps.Libglvnd_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll", "Xorg_libXext_jll"]
-git-tree-sha1 = "d36c21b9e7c172a44a10484125024495e2625ac0"
-uuid = "7e76a0d4-f3c7-5321-8279-8d96eeed0f29"
-version = "1.7.1+1"
-
-[[deps.Libiconv_jll]]
-deps = ["Artifacts", "LazyJLLWrappers", "Libdl"]
-git-tree-sha1 = "7b395350a0ba7cf31fd533af9f59ebc8eb144e08"
-uuid = "94ce4f54-9a6c-5748-9c1c-f9c7231a4531"
-version = "1.18.1"
-
-[[deps.Libmount_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "b8a91037379e1fd661e9b5ff3d7a770424b1f9f2"
-uuid = "4b2f31a3-9ecc-558c-b454-b3730dcb73e9"
-version = "2.42.4+0"
-
-[[deps.Libtiff_jll]]
-deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "LERC_jll", "Libdl", "XZ_jll", "Zlib_jll", "Zstd_jll"]
-git-tree-sha1 = "aebd334d06cee9f24cea70bd19a39749daf73881"
-uuid = "89763e89-9b03-5906-acba-b20f662cd828"
-version = "4.7.3+0"
-
-[[deps.Libuuid_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "9e887184f306b28dbfcff88cefbb0ec80f1aa9e0"
-uuid = "38a345b3-de98-5d2b-a5d3-14cd9215e700"
-version = "2.42.4+0"
 
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
@@ -343,33 +217,10 @@ version = "1.18.0"
     [deps.OffsetArrays.weakdeps]
     Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 
-[[deps.OpenBLAS32_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "6065c4cff8fee6c6770b277af45d5082baacdba1"
-uuid = "656ef2d0-ae68-5445-9ca0-591084a874a2"
-version = "0.3.24+0"
-
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
 version = "0.3.23+5"
-
-[[deps.OpenCV_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "OpenBLAS32_jll", "Qt6Base_jll", "libcxxwrap_julia_jll"]
-git-tree-sha1 = "333c97a0ad230853e7743481d5365d2bff325413"
-uuid = "33b9d88c-85f9-5d73-bd91-4e2b95a9aa0b"
-version = "4.14.0+0"
-
-[[deps.OpenSSL_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "20dd6a885a6fe8b07584d3eb8073133ad04c72e3"
-uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.9+0"
-
-[[deps.PCRE2_jll]]
-deps = ["Artifacts", "Libdl"]
-uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.42.0+1"
 
 [[deps.PNGFiles]]
 deps = ["Base64", "CEnum", "ImageCore", "IndirectArrays", "OffsetArrays", "libpng_jll"]
@@ -383,23 +234,11 @@ git-tree-sha1 = "0fac6313486baae819364c52b4f483450a9d793f"
 uuid = "5432bcbf-9aad-5242-b902-cca2824c8663"
 version = "0.5.12"
 
-[[deps.Pango_jll]]
-deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "1912a9f1b9ca55005b03ba075f8e19993583e237"
-uuid = "36c8627f-9965-5494-a995-c6b170f724f3"
-version = "1.58.2+0"
-
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
 git-tree-sha1 = "2facd7b5863092567d54590997caf8f6db8e0b1e"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.11"
-
-[[deps.Pixman_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "LLVMOpenMP_jll", "Libdl"]
-git-tree-sha1 = "e4a6721aa89e62e5d4217c0b21bd714263779dda"
-uuid = "30392449-352a-5448-841d-b1acce4e97dc"
-version = "0.46.4+0"
 
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
@@ -421,12 +260,6 @@ version = "1.6.1"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
-
-[[deps.Qt6Base_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "Fontconfig_jll", "Glib_jll", "JLLWrappers", "Libdl", "Libglvnd_jll", "OpenSSL_jll", "Vulkan_Loader_jll", "Xorg_libSM_jll", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Xorg_libxcb_jll", "Xorg_xcb_util_cursor_jll", "Xorg_xcb_util_image_jll", "Xorg_xcb_util_keysyms_jll", "Xorg_xcb_util_renderutil_jll", "Xorg_xcb_util_wm_jll", "Zlib_jll", "libinput_jll", "xkbcommon_jll"]
-git-tree-sha1 = "144895f6166994730ee7ff8113b981fc360638f1"
-uuid = "c0090381-4147-56d7-9ebc-da0b1113ec56"
-version = "6.10.2+2"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
@@ -453,18 +286,6 @@ version = "0.7.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
-
-[[deps.Skia]]
-deps = ["Skia_jll"]
-git-tree-sha1 = "80d8f25cd3f81689f8145b4320e92cffdad2d236"
-uuid = "d59498f3-381e-4841-a765-4609d464ae1b"
-version = "0.1.5"
-
-[[deps.Skia_jll]]
-deps = ["Artifacts", "Expat_jll", "Fontconfig_jll", "ICU_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libglvnd_jll", "Xorg_libX11_jll", "libpng_jll", "libwebp_jll", "xkbcommon_jll"]
-git-tree-sha1 = "9e528e0dfb0bd684221af5c85642f213b82fe49f"
-uuid = "775d8421-ae54-5f59-bb96-f071f11d00ce"
-version = "0.40.1+0"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
@@ -532,23 +353,11 @@ uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
-[[deps.Vulkan_Loader_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Wayland_jll", "Xorg_libX11_jll", "Xorg_libXrandr_jll", "xkbcommon_jll"]
-git-tree-sha1 = "2f0486047a07670caad3a81a075d2e518acc5c59"
-uuid = "a44049a8-05dd-5a78-86c9-5fde0876e88c"
-version = "1.3.243+0"
-
 [[deps.Wasmtime_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "2cea10e005b514db4554d79dcab5cad83245c9af"
 uuid = "d20e7296-4f3e-515c-90b9-d2595a77bf72"
 version = "46.0.1+0"
-
-[[deps.Wayland_jll]]
-deps = ["Artifacts", "EpollShim_jll", "Expat_jll", "JLLWrappers", "Libdl", "Libffi_jll"]
-git-tree-sha1 = "96478df35bbc2f3e1e791bc7a3d0eeee559e60e9"
-uuid = "a2964d1f-97da-50d4-b82a-358c7fce9d89"
-version = "1.24.0+0"
 
 [[deps.XML]]
 git-tree-sha1 = "07d9237ceb838d987763ac2a5bcd4e29764ae153"
@@ -563,213 +372,21 @@ version = "0.4.10"
     AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
     StringViews = "354b36f9-a18e-4713-926e-db85100087ba"
 
-[[deps.XZ_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "e52eca002a11c30a858185efdfb15311e1c7a6bf"
-uuid = "ffd25f8a-64ca-5728-b0f7-c24cf3aae800"
-version = "5.8.4+0"
-
-[[deps.Xorg_libICE_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "a3ea76ee3f4facd7a64684f9af25310825ee3668"
-uuid = "f67eecfb-183a-506d-b269-f58e52b52d7c"
-version = "1.1.2+0"
-
-[[deps.Xorg_libSM_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libICE_jll"]
-git-tree-sha1 = "9c7ad99c629a44f81e7799eb05ec2746abb5d588"
-uuid = "c834827a-8449-5923-a945-d239c165b7dd"
-version = "1.2.6+0"
-
-[[deps.Xorg_libX11_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll", "Xorg_xtrans_jll"]
-git-tree-sha1 = "ce91b54a5f90c4f27df6950706234b34e49cf79e"
-uuid = "4f6342f7-b3d2-589e-9d20-edeb45f2b2bc"
-version = "1.8.14+0"
-
-[[deps.Xorg_libXau_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "aa1261ebbac3ccc8d16558ae6799524c450ed16b"
-uuid = "0c0b7dd1-d40b-584c-a123-a41640f87eec"
-version = "1.0.13+0"
-
-[[deps.Xorg_libXcursor_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXfixes_jll", "Xorg_libXrender_jll"]
-git-tree-sha1 = "6c74ca84bbabc18c4547014765d194ff0b4dc9da"
-uuid = "935fb764-8cf2-53bf-bb30-45bb1f8bf724"
-version = "1.2.4+0"
-
-[[deps.Xorg_libXdmcp_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "52858d64353db33a56e13c341d7bf44cd0d7b309"
-uuid = "a3789734-cfe1-5b06-b2d0-1dd0d9d62d05"
-version = "1.1.6+0"
-
-[[deps.Xorg_libXext_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
-git-tree-sha1 = "1a4a26870bf1e5d26cd585e38038d399d7e65706"
-uuid = "1082639a-0dae-5f34-9b06-72781eeb8cb3"
-version = "1.3.8+0"
-
-[[deps.Xorg_libXfixes_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
-git-tree-sha1 = "75e00946e43621e09d431d9b95818ee751e6b2ef"
-uuid = "d091e8ba-531a-589c-9de9-94069b037ed8"
-version = "6.0.2+0"
-
-[[deps.Xorg_libXi_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll", "Xorg_libXfixes_jll"]
-git-tree-sha1 = "704274ca960c42049fd9bda089fc4be32af5cdca"
-uuid = "a51aa0fd-4e3c-5386-b890-e753decda492"
-version = "1.8.5+0"
-
-[[deps.Xorg_libXinerama_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll"]
-git-tree-sha1 = "0ba01bc7396896a4ace8aab67db31403c71628f4"
-uuid = "d1454406-59df-5ea1-beac-c340f2130bc3"
-version = "1.1.7+0"
-
-[[deps.Xorg_libXrandr_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXext_jll", "Xorg_libXrender_jll"]
-git-tree-sha1 = "6c174ef70c96c76f4c3f4d3cfbe09d018bcd1b53"
-uuid = "ec84b674-ba8e-5d96-8ba1-2a689ba10484"
-version = "1.5.6+0"
-
-[[deps.Xorg_libXrender_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
-git-tree-sha1 = "a54cf54677c9f6eac0d97e9d757c233b56bc21b9"
-uuid = "ea2f1a96-1ddc-540d-b46f-429655e07cfa"
-version = "0.9.13+0"
-
-[[deps.Xorg_libxcb_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libXau_jll", "Xorg_libXdmcp_jll"]
-git-tree-sha1 = "bfcaf7ec088eaba362093393fe11aa141fa15422"
-uuid = "c7cfdc94-dc32-55de-ac96-5a1b8d977c5b"
-version = "1.17.1+0"
-
-[[deps.Xorg_libxkbfile_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libX11_jll"]
-git-tree-sha1 = "ed756a03e95fff88d8f738ebc2849431bdd4fd1a"
-uuid = "cc61e674-0454-545c-8b26-ed2c68acab7a"
-version = "1.2.0+0"
-
-[[deps.Xorg_xcb_util_cursor_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_image_jll", "Xorg_xcb_util_jll", "Xorg_xcb_util_renderutil_jll"]
-git-tree-sha1 = "9750dc53819eba4e9a20be42349a6d3b86c7cdf8"
-uuid = "e920d4aa-a673-5f3a-b3d7-f755a4d47c43"
-version = "0.1.6+0"
-
-[[deps.Xorg_xcb_util_image_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_jll"]
-git-tree-sha1 = "f4fc02e384b74418679983a97385644b67e1263b"
-uuid = "12413925-8142-5f55-bb0e-6d7ca50bb09b"
-version = "0.4.1+0"
-
-[[deps.Xorg_xcb_util_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll"]
-git-tree-sha1 = "68da27247e7d8d8dafd1fcf0c3654ad6506f5f97"
-uuid = "2def613f-5ad1-5310-b15b-b15d46f528f5"
-version = "0.4.1+0"
-
-[[deps.Xorg_xcb_util_keysyms_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_jll"]
-git-tree-sha1 = "44ec54b0e2acd408b0fb361e1e9244c60c9c3dd4"
-uuid = "975044d2-76e6-5fbe-bf08-97ce7c6574c7"
-version = "0.4.1+0"
-
-[[deps.Xorg_xcb_util_renderutil_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_jll"]
-git-tree-sha1 = "5b0263b6d080716a02544c55fdff2c8d7f9a16a0"
-uuid = "0d47668e-0667-5a69-a72c-f761630bfb7e"
-version = "0.3.10+0"
-
-[[deps.Xorg_xcb_util_wm_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xcb_util_jll"]
-git-tree-sha1 = "f233c83cad1fa0e70b7771e0e21b061a116f2763"
-uuid = "c22f9ab0-d5fe-5066-847c-f4bb1cd4e361"
-version = "0.4.2+0"
-
-[[deps.Xorg_xkbcomp_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxkbfile_jll"]
-git-tree-sha1 = "9a5e6e8f1a7c40941465c04840145e527f0d6b4b"
-uuid = "35661453-b289-5fab-8a00-3d9160c6a3a4"
-version = "1.5.0+0"
-
-[[deps.Xorg_xkeyboard_config_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_xkbcomp_jll"]
-git-tree-sha1 = "df77b22eb77051b3d0ef30aab979684f7482c66f"
-uuid = "33bec58e-1273-512f-9401-5d533626f822"
-version = "2.48.0+0"
-
-[[deps.Xorg_xtrans_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "a63799ff68005991f9d9491b6e95bd3478d783cb"
-uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
-version = "1.6.0+0"
-
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.3.2+0"
-
-[[deps.Zstd_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "d8ddbe9d8bcde5bde9aa55c26020e6f53683fba6"
-uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
-version = "1.6.0+1"
-
-[[deps.eudev_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "c3b0e6196d50eab0c5ed34021aaa0bb463489510"
-uuid = "35ca27e7-8b34-5b7f-bca9-bdc33f59eb06"
-version = "3.2.14+0"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.11.0+0"
 
-[[deps.libcxxwrap_julia_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "7d49d68ee65d36e1523c1e2d4e31d5f55c06b2b3"
-uuid = "3eaa8342-bff7-56a5-9981-c04077f7cee7"
-version = "0.14.14+0"
-
-[[deps.libdecor_jll]]
-deps = ["Artifacts", "Dbus_jll", "JLLWrappers", "Libdl", "Libglvnd_jll", "Pango_jll", "Wayland_jll", "xkbcommon_jll"]
-git-tree-sha1 = "9bf7903af251d2050b467f76bdbe57ce541f7f4f"
-uuid = "1183f4f0-6f2a-5f1a-908b-139f9cdfea6f"
-version = "0.2.2+0"
-
-[[deps.libevdev_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "56d643b57b188d30cccc25e331d416d3d358e557"
-uuid = "2db6ffa8-e38f-5e21-84af-90c45d0032cc"
-version = "1.13.4+0"
-
-[[deps.libinput_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "eudev_jll", "libevdev_jll", "mtdev_jll"]
-git-tree-sha1 = "91d05d7f4a9f67205bd6cf395e488009fe85b499"
-uuid = "36db933b-70db-51c0-b978-0f229ee0e533"
-version = "1.28.1+0"
-
 [[deps.libpng_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll"]
 git-tree-sha1 = "1fcd6cf05d23adab0b5ffc496d020537215751dc"
 uuid = "b53b4c65-9356-5827-b1ea-8c7a1a84506f"
 version = "1.6.59+1"
-
-[[deps.libwebp_jll]]
-deps = ["Artifacts", "Giflib_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libglvnd_jll", "Libtiff_jll", "libpng_jll"]
-git-tree-sha1 = "52d3b9475133c3bc8c0a7f90f18bfc8cdb5a443a"
-uuid = "c5f90fcd-3b7e-5836-afba-fc50a0988cb2"
-version = "1.6.1+0"
-
-[[deps.mtdev_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "b4d631fd51f2e9cdd93724ae25b2efc198b059b1"
-uuid = "009596ad-96f7-51b1-9f1b-5ce2d5e8a71e"
-version = "1.1.7+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -780,9 +397,3 @@ version = "1.70.0+0"
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 version = "17.8.3+0"
-
-[[deps.xkbcommon_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll", "Xorg_xkeyboard_config_jll"]
-git-tree-sha1 = "a1fc6507a40bf504527d0d4067d718f8e179b2b8"
-uuid = "d8fb68d0-12a3-5cfd-a85a-d49703b185fd"
-version = "1.13.0+0"

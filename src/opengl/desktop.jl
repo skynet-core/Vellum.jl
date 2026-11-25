@@ -26,7 +26,8 @@ end
 """Load the first-party GLX implementation at the first native request."""
 function glx_extension()
     (Sys.islinux() || Sys.isfreebsd()) || throw(ArgumentError("this desktop OpenGL provider requires GLX"))
-    Base.require(Base.PkgId(Base.UUID("d59498f3-381e-4841-a765-4609d464ae1b"),"Skia"))
+    Vellum._require_provider(Base.PkgId(Base.UUID("d59498f3-381e-4841-a765-4609d464ae1b"),"Skia"))
+    Vellum._require_provider(Base.PkgId(Base.UUID("4f6342f7-b3d2-589e-9d20-edeb45f2b2bc"),"Xorg_libX11_jll"))
     ext = Base.get_extension(Vellum,:VellumGLXExt)
     isnothing(ext) && error("Vellum's desktop OpenGL extension failed to load")
     return ext
