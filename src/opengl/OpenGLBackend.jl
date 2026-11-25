@@ -315,15 +315,15 @@ packet owns its words.
 """
 function pack_vectors(frame::Vellum.Frame,size::NTuple{2,Int},dense,resident,halo;
                       streamed=false,layered=false,shared=nothing,shapes=FrameCurves.EMPTY_SHAPES,
-                      workspace=nothing)
+                      workspace=nothing,limits=FrameCurves.BRIDGE_LIMITS)
     resolved = workspace === nothing ? Int[] : workspace.page_slots
     width, height = size
     1 <= width <= MAX_EXTENT[1] && 1 <= height <= MAX_EXTENT[2] ||
         throw(ArgumentError("invalid physical target size"))
     viewport = Vellum.Transform2D(width/frame.size[1],0,0,height/frame.size[2])
     capacity = streamed ? (layered ? RasterPages.LAYER_ACTIVE : RasterPages.STREAM_ACTIVE) : RasterPages.page_capacity(size)
-    data = workspace === nothing ? FrameCurves.Packing(capacity,shared,shapes) :
-        FrameCurves.Packing(workspace,capacity,shared,shapes)
+    data = workspace === nothing ? FrameCurves.Packing(capacity,shared,shapes;limits) :
+        FrameCurves.Packing(workspace,capacity,shared,shapes;limits)
     FrameCurves.encode_nodes!(data,frame.nodes,viewport,frame,dense,size,halo)
     selection = data.page_selection
     assets = RasterPages.allocate_slots!(selection,resident,dense,resolved;streamed)
@@ -338,7 +338,7 @@ function pack_vectors(frame::Vellum.Frame,size::NTuple{2,Int},dense,resident,hal
     paged && append!(words,
         (length(data.rasters)÷RasterAssets.RECORD_WORDS,length(selection.ordered)))
     append!(words,data.rasters)
-    sizeof(words)+sizeof(Float64)*RasterPages.PAGE_WORDS*length(selection.ordered) <= RECORD_BYTES ||
+    sizeof(words)+sizeof(Float64)*RasterPages.PAGE_WORDS*length(selection.ordered) <= limits.bytes ||
         throw(ArgumentError("packed native vector record budget exceeded"))
     RasterPages.append_pages!(words,selection,resolved)
     all(isfinite,words) ||
@@ -360,16 +360,21 @@ of each call. Each output owns its words and shape cache.
 function pack_frame(frame::Vellum.Frame,size,resident::RasterPages.Resident=RasterPages.EMPTY;
                     streamed=false,layered=false,shared=nothing,
                     shapes=streamed ? nothing : FrameCurves.EMPTY_SHAPES,blur_radius=BoxBlurPlan.LEGACY_RADIUS,
-                    workspace=nothing)
+                    workspace=nothing,limits=FrameCurves.BRIDGE_LIMITS)
     try
-        dense = RasterAssets.select_slots(frame,resident.dense)
-        pack = (derived,extent,halo) -> pack_vectors(derived,extent,dense,resident,halo;streamed,layered,shared,shapes,workspace)
-        return BoxBlurPlan.pack(pack,GLText.outline_frame(frame),size,blur_radius)
+        dense = RasterAssets.select_slots(frame,resident.dense;max_side=limits.image_side)
+        pack = (derived,extent,halo) -> pack_vectors(derived,extent,dense,resident,halo;streamed,layered,shared,shapes,workspace,limits)
+        outline = GLText.outline_frame(frame,limits)
+        return limits === FrameCurves.QUEUE_LIMITS ? BoxBlurPlan.pack_queue(pack,outline,size,blur_radius) :
+            BoxBlurPlan.pack(pack,outline,size,blur_radius)
     catch
         workspace === nothing || empty!(workspace.page_slots)
         rethrow()
     end
 end
+
+"""Select the command and memory limits understood by a prepared draw's native provider."""
+packet_limits(::Vellum.Backend) = FrameCurves.BRIDGE_LIMITS
 
 """
     pack_frame(plan::Vellum.PreparedFrame, size, [resident]; streamed=false, layered=false, shapes, blur_radius, workspace=nothing)
@@ -383,12 +388,13 @@ function pack_frame(plan::Vellum.PreparedFrame,size,resident::RasterPages.Reside
                      streamed=false,layered=false,shapes=streamed ? nothing : FrameCurves.EMPTY_SHAPES,
                      blur_radius=BoxBlurPlan.LEGACY_RADIUS,workspace=nothing)
     try
+        limits = packet_limits(plan.backend)
         plan.retention isa Vellum.ImageTiles.RevisionLease ||
-            return pack_frame(plan.frame,size,resident;streamed,layered,shapes,blur_radius,workspace)
+            return pack_frame(plan.frame,size,resident;streamed,layered,shapes,blur_radius,workspace,limits)
         pins = Vellum.execution_retention(plan)
         try
             shared = Vellum.ImageTiles.shared_tile_sources(pins,RasterPages.SIDE)
-            return pack_frame(plan.frame,size,resident;streamed,layered,shared,shapes,blur_radius,workspace)
+            return pack_frame(plan.frame,size,resident;streamed,layered,shared,shapes,blur_radius,workspace,limits)
         finally
             close(pins)
         end

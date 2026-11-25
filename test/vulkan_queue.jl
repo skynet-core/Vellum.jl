@@ -60,6 +60,27 @@ function check_queue_vectors()
     end
 end
 
+"""Check multi-dispatch filter pixels, cancellation and retained publication on a real queue."""
+function check_queue_filters()
+    backend = Vellum.VulkanBackend.QueueBackend()
+    filtered = queue_filtered_frame()
+    deep = queue_deep_frame(8)
+    size = (56,40)
+    surface = make_surface(backend,size)
+    try
+        wait(submit!(backend,surface,deep))
+        check_resident_pixels(surface,rasterize(deep;size))
+        cancel!(submit!(backend,surface,filtered))
+        check_resident_pixels(surface,rasterize(deep;size))
+        wait(submit!(backend,surface,filtered))
+        check_resident_pixels(surface,rasterize(filtered;size))
+        @test Vellum.VulkanBackend.statistics(surface).frames == 2
+        @test rasterize(filtered;target=:vulkan_queue,size).data == readback(surface).data
+    finally
+        close(surface)
+    end
+end
+
 """
     check_queue_sources(registry,cpu,fixtures)
 
@@ -106,6 +127,27 @@ function check_queue_sources(registry,cpu,fixtures)
         draw(cropped)
         check_resident_pixels(s,rasterize(cropped;backend=cpu))
         @test vk.statistics(s).uploaded_bytes == before.uploaded_bytes
+        # Grow the dense region while the page cache and an unchanged dense image are resident.
+        expanded = drawing(size=first.size) do edit
+            for r in first.resources
+                rect = r.payload isa Vellum.RasterReference ? (0,0,256,16) : (0,0,4,4)
+                draw_image!(edit,resource!(edit,:image,r.payload),rect)
+            end
+            for i in 1:9
+                image = Image(256+i,2)
+                fill!(image,rgbx(10i,20i,3i,255))
+                draw_image!(edit,resource!(edit,image),(6i,4,5,6))
+            end
+        end
+        cancel!(submit!(b,s,expanded))
+        check_resident_pixels(s,rasterize(cropped;backend=cpu))
+        draw(cropped)
+        before = vk.statistics(s)
+        draw(expanded)
+        check_resident_pixels(s,rasterize(expanded;backend=cpu))
+        @test vk.statistics(s).committed_upload_bytes-before.committed_upload_bytes == 8sum(257:265)
+        draw(second)
+        check_resident_pixels(s,changed)
     finally
         close(s)
         empty!(faulty.reads)
@@ -119,6 +161,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     include("desktop_images.jl")
     @testset "Owned Vulkan queue" begin
         check_queue_vectors()
+        check_queue_filters()
         withenv("VELLUM_TEST_VULKAN_QUEUE"=>"required") do
             test_desktop_images()
         end

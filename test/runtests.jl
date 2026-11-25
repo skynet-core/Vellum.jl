@@ -29,7 +29,12 @@ function run_suite()
         @testset "Vulkan Julia draw kernel" begin
             QueueKernelTests.compare(drawing_contract_frame())
             QueueKernelTests.compare(queue_paints_frame())
+            QueueKernelTests.compare(queue_filtered_frame())
+            QueueKernelTests.compare(queue_deep_frame(8))
+            @test_throws ArgumentError QueueKernelTests.render_kernel(queue_deep_frame(9),(12,12))
+            @test_throws ArgumentError Vellum.OpenGLBackend.pack_frame(queue_deep_frame(3),(12,12))
             test_queue_window_geometry()
+            test_queue_atlas()
         end
         test_rendering()
         test_surfaces()

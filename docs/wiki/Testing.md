@@ -27,6 +27,8 @@ Run `julia --project=. tools/ci.jl --desktop` on Linux with GTK 4.14+, X11 and W
 
 Run `julia --project=. tools/ci.jl --vulkan-queue` to test a fresh headless installation of the Vulkan queue provider. It exercises the public draw and submission APIs, cancellation, inactive page reuse, provider failure and readback against the CPU renderer. A Mesa software device also works. The regular unit suite executes the same Julia shader functions on the CPU.
 
+This suite also compares nested, anisotropic box filters with the CPU reference, including geometry beyond the viewport. It grows a source atlas while dense images and tiles are resident, cancels that submission, then retries and checks the pixels and upload counts. The tutorial rendering report includes the owned Vulkan queue alongside the GSK Vulkan path.
+
 The desktop image check draws a dense patch and two adjacent source tiles. It changes just one tile, verifies the transferred byte count, and compares the interpolated seam and fractional crop with the CPU image. A provider throws during its second page read. The test verifies that the committed pixels and textures survive, then retries. OpenGL also exercises fence polling, cancellation and close with a draw pending. The Vulkan check inspects the native type of each resident texture on the test driver.
 
 The browser check switches scenes and reads displayed pixels through a disposable local browser profile. To reproduce the contract scene on CPU, load Vellum, include `test/fixtures/drawing_contract.jl`, and call `savepng("contract.png", drawing_contract_frame())`. Its expected pixels use zero-based `(x, y)`. The Julia image index is `image[y+1, x+1]`.

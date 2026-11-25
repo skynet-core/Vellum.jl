@@ -32,6 +32,14 @@ const MAX_STOPS = 128
 """Largest absolute physical geometry coordinate in the extended bridge packet."""
 const COORDINATE_LIMIT = 16384
 
+"""Table, text and nesting limits for packets sent to existing native bridge binaries."""
+const BRIDGE_LIMITS = (commands=MAX_COMMANDS, shapes=MAX_SHAPES, contours=MAX_CONTOURS,
+    points=MAX_POINTS, stops=MAX_STOPS, depth=2, glyphs=32, outline=1024, image_side=RasterAssets.MAX_SIDE, bytes=RasterPages.RECORD_BYTES)
+
+"""Table limits for Vellum's owned Vulkan queue. The plan buffer grows to fit each admitted draw."""
+const QUEUE_LIMITS = (commands=4096, shapes=8192, contours=65536, points=262144,
+    stops=8192, depth=8, glyphs=2048, outline=32768, image_side=4096, bytes=16*1024*1024)
+
 """Neutral-paint physical geometry retained under its exact lowering inputs."""
 struct CachedShape
     path::V.PathData
@@ -98,6 +106,7 @@ Workspace() = Workspace(Float64[],Float64[],Float64[],Float64[],Float64[],Float6
 
 """Growable word tables for a single frame. Offsets are zero-based in the shader."""
 mutable struct Packing{C<:Union{Nothing,ShapeCache}}
+    limits::typeof(BRIDGE_LIMITS)
     commands::Vector{Float64}
     shapes::Vector{Float64}
     contours::Vector{Float64}
@@ -110,8 +119,8 @@ mutable struct Packing{C<:Union{Nothing,ShapeCache}}
     clip_spans::Union{Nothing,Vector{ClipSpan}}
 end
 """Start empty frame tables with the given source capacity and read-only geometry cache."""
-Packing(capacity=RasterPages.CAPACITY,shared=nothing,previous=EMPTY_SHAPES) =
-    Packing(Float64[],Float64[],Float64[],Float64[],Float64[],Float64[],
+Packing(capacity=RasterPages.CAPACITY,shared=nothing,previous=EMPTY_SHAPES;limits=BRIDGE_LIMITS) =
+    Packing(limits,Float64[],Float64[],Float64[],Float64[],Float64[],Float64[],
         RasterPages.Selection(capacity,shared),previous,previous === nothing ? nothing : ShapeCache(),nothing)
 
 """
@@ -122,7 +131,7 @@ candidate slot dictionary and geometry cache have their own storage.
 The next pack can reuse the workspace after an error.
 Normal packet and source admission limits still apply.
 """
-function Packing(workspace::Workspace,capacity,shared,previous)
+function Packing(workspace::Workspace,capacity,shared,previous;limits=BRIDGE_LIMITS)
     for table in (workspace.commands,workspace.shapes,workspace.contours,
                   workspace.points,workspace.stops,workspace.rasters)
         empty!(table)
@@ -131,7 +140,7 @@ function Packing(workspace::Workspace,capacity,shared,previous)
     empty!(workspace.page_keys)
     selection = RasterPages.Selection(workspace.page_lookups,Dict{RasterPages.TileKey,Int}(),
         workspace.page_keys,0,false,capacity,shared)
-    return Packing(workspace.commands,workspace.shapes,workspace.contours,
+    return Packing(limits,workspace.commands,workspace.shapes,workspace.contours,
         workspace.points,workspace.stops,workspace.rasters,
         selection,previous,
         previous === nothing ? nothing : ShapeCache(),nothing)
@@ -149,13 +158,13 @@ zero-based shape index. Invalid coordinates or exceeded limits raise
 """
 function append_shape!(p, geometry, cached=nothing)
     shape = length(p.shapes) ÷ SHAPE
-    check(shape < MAX_SHAPES, "geometry count exceeds profile")
+    check(shape < p.limits.shapes, "geometry count exceeds profile")
     first = length(p.contours) ÷ CONTOUR
     for contour in geometry.contours
         n = length(contour.points)
         start = length(p.points) ÷ 2
-        check(length(p.contours) ÷ CONTOUR < MAX_CONTOURS &&
-              start+n <= MAX_POINTS, "contour and point budget exceeded")
+        check(length(p.contours) ÷ CONTOUR < p.limits.contours &&
+              start+n <= p.limits.points, "contour and point budget exceeded")
         n > 0 || continue
         xmin,ymin,xmax,ymax = Inf,Inf,-Inf,-Inf
         for point in contour.points
@@ -220,7 +229,7 @@ end
 
 """Append one premultiplied sRGB stop. Reject unsupported colors or excess stops."""
 function add_stop!(p, position, color)
-    check(color.space === :srgb && length(p.stops) ÷ STOP < MAX_STOPS, "unsupported color space or stop budget")
+    check(color.space === :srgb && length(p.stops) ÷ STOP < p.limits.stops, "unsupported color space or stop budget")
     r,g,b,a = color.channels
     append!(p.stops,(position,r*a,g*a,b*a,a))
 end
@@ -255,7 +264,7 @@ end
 
 """Append one command and its stable node identity after validating the budget."""
 function add_command!(p, opcode, node, data=(0,0,0,0,0,0,0,0,0,0,0))
-    check(length(p.commands) ÷ COMMAND < MAX_COMMANDS &&
+    check(length(p.commands) ÷ COMMAND < p.limits.commands &&
           0 < node.id <= 2^48 && 0 < node.revision <= 2^48, "draw count or identity outside profile")
     append!(p.commands,(opcode,node.id,node.revision,data...))
 end
@@ -315,7 +324,7 @@ function encode_nodes!(p, nodes, viewport, frame, assets, size, halo, depth=0)
     for node in nodes
         op = node.operation
         if op isa V.CompositeGroup
-            check(depth < 2 && op.effect === nothing, "unsupported group depth or effect")
+            check(depth < p.limits.depth && op.effect === nothing, "unsupported group depth or effect")
             add_command!(p,1,node)
             encode_nodes!(p,op.nodes,viewport,frame,assets,size,halo,depth+1)
             add_command!(p,2,node,(0,0,0,op.opacity,Int(op.blend===:multiply),0,0,0,0,0,0))

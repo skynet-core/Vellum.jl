@@ -11,6 +11,8 @@ const MAX_SIDE = 256
 const RECORD_WORDS = 14
 """Fixed resident array of immutable image payloads and vacant slots."""
 const Slots = NTuple{SLOT_COUNT,Union{Nothing,Vellum.ImageData}}
+"""Dense slot storage owned by a native bridge or an independently sized queue."""
+const SlotTable = Union{Slots,Vector{Union{Nothing,Vellum.ImageData}}}
 """A slot array with no images yet uploaded."""
 const EMPTY_SLOTS = ntuple(_ -> nothing, SLOT_COUNT)
 
@@ -48,12 +50,12 @@ Require a top-left, tightly packed premultiplied sRGB RGBA8 snapshot of at
 most 256 × 256 pixels. Unsupported representations or dimensions throw
 `ArgumentError`. The GPU reads little-endian RGBA8 words.
 """
-function validate_asset(payload)
-    payload isa Vellum.ImageData && 1 <= payload.width <= MAX_SIDE && 1 <= payload.height <= MAX_SIDE &&
+function validate_asset(payload,max_side=MAX_SIDE)
+    payload isa Vellum.ImageData && 1 <= payload.width <= max_side && 1 <= payload.height <= max_side &&
         payload.format === :rgba8 && payload.alpha === :premultiplied && payload.color_space === :srgb &&
         payload.orientation === :top_left && payload.row_stride == 4*payload.width &&
         length(payload.pixels) == payload.row_stride*payload.height && ENDIAN_BOM == 0x04030201 ||
-        throw(ArgumentError("native GPU images must be little-endian packed premultiplied RGBA8 up to 256 × 256"))
+        throw(ArgumentError("native GPU images must be little-endian packed premultiplied RGBA8 up to $max_side × $max_side"))
     return payload
 end
 
@@ -63,17 +65,17 @@ end
 Collect distinct visible-use payloads in drawing order, including child
 groups. Throw on an unsupported image or a fifth distinct payload.
 """
-function collect_assets!(items::Vector{Vellum.ImageData}, frame::Vellum.Frame, nodes)
+function collect_assets!(items::Vector{Vellum.ImageData}, frame::Vellum.Frame, nodes,capacity=SLOT_COUNT,max_side=MAX_SIDE)
     for node in nodes
         op = node.operation
         if op isa Vellum.CompositeGroup
-            collect_assets!(items, frame, op.nodes)
+            collect_assets!(items, frame, op.nodes,capacity,max_side)
         elseif op isa Vellum.ImageRegion && drawable(op)
             resource = Vellum.resource(frame, op.image)
             resource isa Vellum.RasterReference && continue
-            asset = validate_asset(resource)
+            asset = validate_asset(resource,max_side)
             any(item -> item === asset, items) && continue
-            length(items) < SLOT_COUNT || throw(ArgumentError("native image slot limit exceeded"))
+            length(items) < capacity || throw(ArgumentError("native image slot limit exceeded"))
             push!(items, asset)
         end
     end
@@ -87,9 +89,9 @@ Keep reused images in their completed slots and fill vacancies with new
 images in drawing order. Snapshot pixels are shared throughout. A plan with
 unsupported resources, extents or too many active images throws.
 """
-function select_slots(frame::Vellum.Frame, resident::Slots=EMPTY_SLOTS)::Slots
+function select_slots(frame::Vellum.Frame,resident::SlotTable=EMPTY_SLOTS;max_side=MAX_SIDE)
     active = Vellum.ImageData[]
-    collect_assets!(active, frame, frame.nodes)
+    collect_assets!(active, frame, frame.nodes,length(resident),max_side)
     slots = Union{Nothing,Vellum.ImageData}[
         any(item -> item === asset, active) ? asset : nothing for asset in resident
     ]
@@ -97,7 +99,7 @@ function select_slots(frame::Vellum.Frame, resident::Slots=EMPTY_SLOTS)::Slots
         any(item -> item === asset, slots) && continue
         slots[findfirst(isnothing, slots)] = asset
     end
-    return Tuple(slots)
+    return resident isa Slots ? Tuple(slots) : slots
 end
 
 """
@@ -105,7 +107,7 @@ end
 
 Collect only changed, nonempty dense slots and retain their immutable bytes.
 """
-function uploads(before::Slots, after::Slots)
+function uploads(before::SlotTable, after::SlotTable)
     pending = StagedUpload[]
     for (index, asset) in pairs(after)
         asset === nothing && continue
@@ -142,7 +144,7 @@ mapping in physical coordinates. This uses the same inverse mapping and
 crop boundaries as CPU rendering. Throw on missing or invalid geometry,
 an unsupported sampling mode, or an out-of-profile mapping.
 """
-function append_record!(records, frame, slots::Slots, op::Vellum.ImageRegion, transform)
+function append_record!(records, frame, slots::SlotTable, op::Vellum.ImageRegion, transform)
     asset = Vellum.resource(frame, op.image)
     slot = findfirst(item -> item === asset, slots)
     slot === nothing && throw(ArgumentError("image has no selected resident GPU slot"))

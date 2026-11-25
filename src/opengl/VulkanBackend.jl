@@ -204,6 +204,8 @@ end
 
 include("vulkan_desktop.jl")
 include("queue_kernel.jl")
+include("queue_passes.jl")
+include("queue_atlas.jl")
 include("vulkan_queue.jl")
 
 end

@@ -215,13 +215,15 @@ function tutorial_proof(ws,dir)
             reference = rasterize(expected)
             mask = findall(==(0xff),reference.data[4:4:end])
             @assert length(mask)>=length(reference)÷2
-            for (target,provider) in (("cpu",nothing),("vulkan",Vellum.VulkanBackend),("opengl",Vellum.OpenGLBackend),("webgl2",nothing))
+            for (target,provider) in (("cpu",nothing),("vulkan",Vellum.VulkanBackend),
+                    ("vulkan-queue",Vellum.VulkanBackend),("opengl",Vellum.OpenGLBackend),("webgl2",nothing))
                 if target=="cpu"
                     result,driver = reference,"Vellum CPU"
                 elseif target=="webgl2"
                     result,driver = web_result
                 else
-                    surface = render(expected;backend=provider.DesktopBackend())
+                    backend = target=="vulkan-queue" ? provider.QueueBackend() : provider.DesktopBackend()
+                    surface = render(expected;backend)
                     try
                         result,driver = readback(surface),provider.statistics(surface).renderer
                     finally
@@ -233,6 +235,9 @@ function tutorial_proof(ws,dir)
                 filename = "$label-$target.png"
                 savepng(joinpath(destination,filename),result)
                 passed = error < 6
+                if target=="vulkan-queue"
+                    @test maximum(i -> abs(Int(result.data[i])-Int(reference.data[i])),eachindex(result.data)) <= 2
+                end
                 if label=="glass_controls"
                     # Shadow depth over sand and water, measured against the same unobstructed map.
                     for x in (115,252)

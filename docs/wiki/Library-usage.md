@@ -103,7 +103,9 @@ On the GLX OpenGL backend, `token = submit!(backend, surface, frame)` queues one
 
 ### Submit to an owned Vulkan queue
 
-Use `Vellum.VulkanBackend.QueueBackend()` with the same frame to render offscreen without a window. Its compact profile supports fills, strokes, captured text, clips, clears, gradients, isolated groups and dense or tiled image sampling. It admits 32 draw/group records, two group levels, 256 × 256 dense sources, and output up to 1920 × 1080. The display-backed GSK renderer serves the larger workshop scenes.
+Use `rasterize(frame; target=:vulkan_queue)` to select Vellum's own Vulkan renderer with or without a display. It supports fills, strokes, captured text, clips, clears, gradients, isolated groups and dense or tiled image sampling. A frame can contain 4,096 draw/group records, eight group levels and up to 64 packed RGBA8 images of up to 4,096 pixels per side. The packet limit is 16 MiB and the two-bank source atlas has a 128 MiB budget. Output extends to 1920 × 1080.
+
+Apply `with_group(edit; effect=BoxBlur(3, 6))` to filter an isolated group on the GPU before compositing. Groups can nest or overlap. Radii use logical units and support up to 24 physical pixels per axis. Each unpublished output has a 128 MiB budget for pixels and filter scratch together. Select `VELLUM_TUTORIAL_RENDERER=vulkan_queue` with `VELLUM_TUTORIAL_HOST=wayland` or `x11` for the native dashboard and glass workshops.
 
 ```julia
 using Vellum

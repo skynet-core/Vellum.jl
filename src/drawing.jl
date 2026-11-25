@@ -125,6 +125,10 @@ uses the bundled GLX provider when no legacy bridge is configured or found.
 A display-backed Vulkan request uses GTK. Headless requests and explicit Vulkan device choices use Vellum's own queue.
 """
 function _drawing_native_backend(target, device; linux=Sys.islinux(), freebsd=Sys.isfreebsd())
+    if target === :vulkan_queue
+        linux || freebsd || throw(ArgumentError("Vulkan queue rendering is unavailable on this platform"))
+        return VulkanBackend.QueueBackend(;device)
+    end
     linux || (freebsd && target === :opengl) ||
         throw(ArgumentError("$target one-shot rendering is unavailable on this platform"))
     name = target === :opengl ? "OPENGL" : "VULKAN"
@@ -153,11 +157,12 @@ Render a frame and return its own premultiplied RGBA image.
 
 Set `size` to physical `(width, height)` in integer pixels. The default
 creates and closes a temporary CPU renderer. Supply a `device` only for
-`target=:opengl` or `:vulkan`. The first-party offscreen OpenGL provider
+`target=:opengl`, `:vulkan` or `:vulkan_queue`. The first-party offscreen OpenGL provider
 uses the X11 display's OpenGL device. Symbolic device selectors check its
 vendor and exact PCI matches require a driver with GLX_MESA_query_renderer.
 On Linux with a display, Vulkan defaults to GTK 4.14+. Without a display, or with an explicit vendor or ID pair,
-Vellum uses its owned Vulkan compute queue. Install VulkanCore and Shaderc_jll for this compact profile.
+Vellum uses its owned Vulkan compute queue. Select `:vulkan_queue` explicitly to use
+the same provider with a display attached. Install VulkanCore and Shaderc_jll in the application project.
 For the legacy native bridge adapters, `device=:auto`
 requires exactly one visible PCI DRM render node. `:amd`, `:intel`, and
 `:nvidia` require exactly one matching node; `(vendor, product)` selects
@@ -184,8 +189,8 @@ function rasterize(frame::Frame; backend=nothing, target=_DRAWING_OMITTED, devic
         throw(ArgumentError("backend conflicts with target or device"))
     if backend === nothing
         choice = target === _DRAWING_OMITTED ? :cpu : target
-        choice isa Symbol && choice in (:cpu, :opengl, :vulkan) ||
-            throw(ArgumentError("target must be :cpu, :opengl, or :vulkan; use savehtml for browser output"))
+        choice isa Symbol && choice in (:cpu, :opengl, :vulkan, :vulkan_queue) ||
+            throw(ArgumentError("expected :cpu, :opengl, :vulkan or :vulkan_queue"))
         if choice === :cpu
             device === _DRAWING_OMITTED || throw(ArgumentError("CPU target does not accept device"))
             renderer = CPUBackend.Renderer()

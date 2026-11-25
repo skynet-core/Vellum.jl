@@ -2,6 +2,7 @@
 module QueueKernel
 
 using StaticArrays: SVector, MVector
+using ...OpenGLBackend.FrameCurves: QUEUE_LIMITS
 include("queue_shader_lowering.jl")
 
 """Device pixel or texel coordinates, with two integer components."""
@@ -10,8 +11,8 @@ const PointI = SVector{2,Int}
 const PointD = SVector{2,Float64}
 """Premultiplied red, green, blue and alpha in normalized device units."""
 const Pixel = SVector{4,Float32}
-"""One accumulator for the root and each of the two admitted isolated groups."""
-const LayerStack = MVector{3,Pixel}
+"""One accumulator for the root and each isolated group admitted by the Vulkan packet profile."""
+const LayerStack = MVector{QUEUE_LIMITS.depth+1,Pixel}
 
 """Zero-based word offsets of the geometry, paint and image tables in a compact frame packet."""
 struct PacketTables
@@ -22,6 +23,34 @@ struct PacketTables
     raster::Int
     page::Int
 end
+
+"""
+    DrawPass(mode, width, height, x, y, first, stop, src, dst, stride, rx, ry)
+
+One Vulkan compute dispatch in a filtered frame. Width and height describe its
+invocation grid. Coordinates are physical, command bounds are zero-based and
+half-open, and source/destination offsets count 32-bit words. A negative source
+starts a transparent layer. The same layout supplies the shader push constants.
+"""
+struct DrawPass
+    mode::Int32
+    width::Int32
+    height::Int32
+    x::Int32
+    y::Int32
+    first::Int32
+    stop::Int32
+    src::Int32
+    dst::Int32
+    stride::Int32
+    rx::Int32
+    ry::Int32
+end
+
+"""Reinterpret one packed scratch word as a floating-point premultiplied channel."""
+word_float(x::UInt32) = reinterpret(Float32,x)
+"""Preserve the bits of one floating-point channel between Vulkan dispatches."""
+float_word(x::Float32) = reinterpret(UInt32,x)
 
 """
     at_offset(buffer,i)
@@ -74,7 +103,7 @@ pack_color(p) = sum(i -> round(UInt32,255*clamp(p[i],0,1)) << (8(i-1)),1:4)
         first::Int = intword(data,shape)
         for i in first:(first+intword(data,shape+1)-1)
             c::Int = t.contour+6*i
-            if p.x>at_offset(data.words,c+4) || p.y<at_offset(data.words,c+3) || p.y>=at_offset(data.words,c+5)
+            if p.x<at_offset(data.words,c+2) || p.x>at_offset(data.words,c+4) || p.y<at_offset(data.words,c+3) || p.y>=at_offset(data.words,c+5)
                 continue
             end
             start::Int = t.point+2*intword(data,c)
@@ -230,16 +259,17 @@ pack_color(p) = sum(i -> round(UInt32,255*clamp(p[i],0,1)) << (8(i-1)),1:4)
     end
 
     """
-        draw_pixel(data,pixel::PointI)::UInt32
+        draw_range(data,pixel,first,stop,initial)::Pixel
 
-    Rasterize one physical pixel with a 4 × 4 sample grid and isolated group composition.
+    Composite a balanced range of commands over the initial premultiplied color.
+    Use a 4 × 4 sample grid in physical coordinates, including outside the target.
     """
-    function draw_pixel(data,pixel::PointI)::UInt32
+    function draw_range(data,pixel::PointI,first::Int,stop::Int,initial::Pixel)::Pixel
         t::PacketTables = packet_tables(data)
         layers::LayerStack = LayerStack(undef)
-        layers[1]=Pixel(0,0,0,0)
+        layers[1]=initial
         depth::Int = 1
-        for i in 0:(intword(data,4)-1)
+        for i in first:(stop-1)
             c::Int = 10+14*i
             op::Int = intword(data,c)
             if op==1
@@ -294,7 +324,56 @@ pack_color(p) = sum(i -> round(UInt32,255*clamp(p[i],0,1)) << (8(i-1)),1:4)
                 layers[depth]=composite_pixel(layers[depth],color*(opacity/16),multiply)
             end
         end
-        return pack_color(layers[1])
+        return layers[1]
+    end
+
+    """Rasterize an unfiltered command stream and quantize its final premultiplied color."""
+    function draw_pixel(data,pixel::PointI)::UInt32
+        return pack_color(draw_range(data,pixel,0,intword(data,4),Pixel(0,0,0,0)))
+    end
+
+    """Read four contiguous float channels from a scratch plane without quantization."""
+    function read_scratch(data,i::Int)::Pixel
+        return Pixel(word_float(at_offset(data.pixels,i)),word_float(at_offset(data.pixels,i+1)),
+            word_float(at_offset(data.pixels,i+2)),word_float(at_offset(data.pixels,i+3)))
+    end
+
+    """Write a premultiplied scratch pixel at its zero-based word offset."""
+    function write_scratch!(data,i::Int,color::Pixel)::Nothing
+        for j in 1:4
+            data.pixels[i+j]=float_word(color[j])
+        end
+        return nothing
+    end
+
+    """Accumulate a horizontal or vertical box window in a float scratch plane."""
+    function box_sum(data,i::Int,stride::Int,radius::Int)::Pixel
+        color::Pixel = Pixel(0,0,0,0)
+        for k in 0:(2*radius)
+            color+=read_scratch(data,i+k*stride)
+        end
+        return color
+    end
+
+    """Execute a geometry range, horizontal sum, vertical composite or final RGBA8 store."""
+    function execute_pass!(data,d::DrawPass,p::PointI)::Nothing
+        index::Int = p.y*d.width+p.x
+        dest::Int = d.dst+4*index
+        if d.mode==1
+            initial::Pixel = d.src<0 ? Pixel(0,0,0,0) : read_scratch(data,d.src+4*index)
+            write_scratch!(data,dest,draw_range(data,p+PointI(d.x,d.y),Int(d.first),Int(d.stop),initial))
+        elseif d.mode==2
+            start::Int = d.src+4*(p.y*d.stride+p.x)
+            write_scratch!(data,dest,box_sum(data,start,4,Int(d.rx)))
+        elseif d.mode==3
+            c::Int = 10+14*d.first
+            scale::Float32 = Float32(at_offset(data.words,c+6)/((2*d.rx+1)*(2*d.ry+1)))
+            top::Pixel = box_sum(data,d.src+4*index,4*Int(d.width),Int(d.ry))*scale
+            write_scratch!(data,dest,composite_pixel(read_scratch(data,dest),top,intword(data,c+7)!=0))
+        else
+            data.pixels[index+1]=pack_color(read_scratch(data,d.src+4*index))
+        end
+        return nothing
     end
 end
 

@@ -115,4 +115,48 @@ function pack(pack_vectors,frame::Frame,size,blur_radius)
     return packet
 end
 
+"""
+    queue_effects!(radii, nodes, size, logical, limit, halo)
+
+Record each group's physical filter radius and return the largest cumulative
+halo on any branch. Sibling filters reuse scratch and do not add their radii.
+"""
+function queue_effects!(radii,nodes,size,logical,limit,halo)
+    widest = halo
+    for node in nodes
+        op = node.operation
+        op isa CompositeGroup || continue
+        child_halo = halo
+        if nonzero(op.effect)
+            radius = support(op.effect,size,logical,limit)
+            radii[node.id] = radius
+            child_halo = halo .+ radius
+        end
+        widest = max.(widest,queue_effects!(radii,op.nodes,size,logical,limit,child_halo))
+    end
+    return widest
+end
+
+"""
+    pack_queue(pack_vectors, frame, size, blur_radius)
+
+Lower multiple or nested isolated filters for the owned queue. Mark the group
+exits in drawing order and retain source pages across their cumulative halo.
+"""
+function pack_queue(pack_vectors,frame::Frame,size,blur_radius)
+    has_effect(frame.nodes) || return pack_vectors(frame,size,(0,0))
+    radii = Dict{UInt64,NTuple{2,Int}}()
+    halo = queue_effects!(radii,frame.nodes,size,frame.size,blur_radius,(0,0))
+    stripped = Frame(frame.schema_version,frame.canvas,frame.revision,frame.size,strip_effects(frame.nodes),frame.resources)
+    packet = pack_vectors(stripped,size,halo)
+    words = packet.words
+    for i in 0:Int(words[5])-1
+        offset = FrameCurves.HEADER + i*FrameCurves.COMMAND + 1
+        words[offset] == 2 || continue
+        radius = get(radii,UInt64(words[offset+1]),(0,0))
+        words[offset+3],words[offset+4] = radius
+    end
+    return packet
+end
+
 end

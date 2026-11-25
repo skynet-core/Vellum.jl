@@ -74,11 +74,12 @@ end
 
 Open an owned window and pass `callback(window, present)` a frame presenter. Call
 `present(frame)` after model changes. The selected native backend renders at the actual
-framebuffer extent. A `VulkanBackend.QueueBackend()` target uses a first-party Vulkan
-swapchain on either window system. The symbolic targets use a readback and OpenGL blit.
+framebuffer extent. Select `:vulkan_queue` or pass a configured `VulkanBackend.QueueBackend()`
+to present through a first-party Vulkan swapchain on either window system.
 `before_swap(image)` optionally inspects the completed pixels while the window is current.
 """
 function with_frame_window(callback,width,height,title;platform,target=:cpu)
+    target === :vulkan_queue && (target = Vellum.VulkanBackend.QueueBackend())
     target isa Vellum.VulkanBackend.QueueBackend && return with_queue_window(callback,target,width,height,title,platform)
     target in (:cpu,:opengl,:vulkan) || throw(ArgumentError("expected a native frame renderer"))
     backend = target===:cpu ? Vellum.CPUBackend.Renderer() : Vellum._drawing_native_backend(target,:auto)

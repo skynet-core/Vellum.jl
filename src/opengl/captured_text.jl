@@ -3,10 +3,10 @@ module GLText
 
 import ...Vellum
 using ...Vellum: Frame, TextRun, SemanticNode, FillPath, StrokePath, ClearRegion, CompositeGroup, ImageRegion
-using ..FrameCurves: MAX_COMMANDS
+using ..FrameCurves: BRIDGE_LIMITS
 
 """Per-run limit on outline commands before the donor's separate geometry limits."""
-const OUTLINE_COMMANDS = 1024
+const OUTLINE_COMMANDS = BRIDGE_LIMITS.outline
 
 """
     neutral_text_child(operation) -> Union{Nothing,SemanticNode}
@@ -35,7 +35,7 @@ Track the native command budget in `slots` and the remaining group depth.
 Throw `ArgumentError` for unsupported operations or exhausted limits.
 Invalid font references, glyph IDs and outline geometry are rejected by Vellum.
 """
-function outline_nodes(nodes, source::Frame, slots, depth)
+function outline_nodes(nodes, source::Frame, slots, depth, limits=BRIDGE_LIMITS)
     length(nodes) <= slots[] || throw(ArgumentError("command budget exceeded"))
     return Tuple(map(collect(nodes)) do original
         child = neutral_text_child(original.operation)
@@ -44,13 +44,13 @@ function outline_nodes(nodes, source::Frame, slots, depth)
         slots[] -= op isa CompositeGroup ? 2 : 1
         slots[] >= 0 || throw(ArgumentError("command budget exceeded"))
         if op isa TextRun
-            0 < length(op.glyphs) <= 32 || throw(ArgumentError("expected 1–32 captured glyphs"))
+            0 < length(op.glyphs) <= limits.glyphs || throw(ArgumentError("captured glyph count outside packet profile"))
             isempty(op.fallback_fonts) || throw(ArgumentError("use separate captured face runs"))
-            path = Vellum._portable_text_path(op, source, node.id; max_commands=OUTLINE_COMMANDS)
+            path = Vellum._portable_text_path(op, source, node.id; max_commands=limits.outline)
             SemanticNode(node.id, node.revision, FillPath(path, op.state, :nonzero))
         elseif op isa CompositeGroup
-            depth < 2 || throw(ArgumentError("unsupported group depth"))
-            children = outline_nodes(op.nodes, source, slots, depth + 1)
+            depth < limits.depth || throw(ArgumentError("unsupported group depth"))
+            children = outline_nodes(op.nodes, source, slots, depth + 1, limits)
             SemanticNode(node.id, node.revision, CompositeGroup(children, op.opacity, op.blend, op.effect))
         else
             op isa Union{FillPath,StrokePath,ClearRegion,ImageRegion} ||
@@ -68,7 +68,7 @@ Return `false` when text needs rewriting so the outliner can validate
 and lower the entire graph. Update the caller's command counter for nodes
 visited during the scan.
 """
-function unchanged_nodes(nodes,slots,depth)
+function unchanged_nodes(nodes,slots,depth,limits=BRIDGE_LIMITS)
     length(nodes) <= slots[] || throw(ArgumentError("command budget exceeded"))
     for node in nodes
         op = node.operation
@@ -77,8 +77,8 @@ function unchanged_nodes(nodes,slots,depth)
         slots[] -= op isa CompositeGroup ? 2 : 1
         slots[] >= 0 || throw(ArgumentError("command budget exceeded"))
         if op isa CompositeGroup
-            depth < 2 || throw(ArgumentError("unsupported group depth"))
-            unchanged_nodes(op.nodes,slots,depth+1) || return false
+            depth < limits.depth || throw(ArgumentError("unsupported group depth"))
+            unchanged_nodes(op.nodes,slots,depth+1,limits) || return false
         else
             op isa Union{FillPath,StrokePath,ClearRegion,ImageRegion} ||
                 throw(ArgumentError("unsupported operation"))
@@ -95,10 +95,10 @@ GPU adapter. A scene without text can reuse its immutable frame. Outlining
 preserves source identity, resources and logical size. Propagate unsupported
 or invalid outline errors before packing.
 """
-function outline_frame(source::Frame)
-    unchanged_nodes(source.nodes,Ref(MAX_COMMANDS),0) && return source
+function outline_frame(source::Frame,limits=BRIDGE_LIMITS)
+    unchanged_nodes(source.nodes,Ref(limits.commands),0,limits) && return source
     return Frame(source.schema_version, source.canvas, source.revision, source.size,
-        outline_nodes(source.nodes, source, Ref(MAX_COMMANDS), 0), source.resources)
+        outline_nodes(source.nodes, source, Ref(limits.commands), 0, limits), source.resources)
 end
 
 end

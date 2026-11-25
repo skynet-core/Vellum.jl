@@ -131,7 +131,7 @@ function check_glfw_window(platform)
             close(s)
         end
     end
-    gl.with_frame_window(160,80,"Raw Vulkan frame API";platform,target=b) do window,present
+    gl.with_frame_window(160,80,"Raw Vulkan frame API";platform,target=:vulkan_queue) do window,present
         seen = Ref(0)
         present(frame;before_swap=image -> begin
             @test (image.width,image.height) == gl.framebuffer_size(window)

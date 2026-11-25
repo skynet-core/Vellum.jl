@@ -4,7 +4,7 @@
 Draw portable frames offscreen on an owned Vulkan compute queue without a display.
 Install VulkanCore and Shaderc_jll in the application project. Select a Float64-capable
 device automatically, by vendor (:amd, :intel, :nvidia), or by (vendor ID, product ID).
-The compact vector profile supports 32 commands, two group levels and a 1920 × 1080 target.
+The vector profile supports 4096 commands, eight isolated group levels and a 1920 × 1080 target.
 Supply a raster registry for immutable tiled sources.
 """
 struct QueueBackend <: Vellum.Backend
@@ -18,6 +18,9 @@ struct QueueBackend <: Vellum.Backend
         throw(ArgumentError("invalid Vulkan device selector $device"))
     end
 end
+
+"""Use the owned Vulkan packet budget when lowering a prepared portable frame."""
+OpenGLBackend.packet_limits(::QueueBackend) = OpenGLBackend.FrameCurves.QUEUE_LIMITS
 
 """An owned Vulkan device, its submission resources and two independently publishable output buffers."""
 struct QueueSurface{T} <: Vellum.Surface
@@ -51,9 +54,10 @@ end
 Report vector, captured-text and sampling support for the compact Vulkan compute pipeline.
 """
 function Vellum.capabilities(b::QueueBackend)
-    features = (:fill_path,:stroke_path,:curve_paths,:clear,:clip,:group,:multiply,:float64,:gradient,
+    features = (:fill_path,:stroke_path,:curve_paths,:clear,:clip,:group,:multiply,:float64,:gradient,:effect_box_blur_v1,
                 :text,:text_captured_glyphs_v1,:image,:linear_sampling)
-    isnothing(b.raster_registry) && return Vellum.Capabilities(;features,max_image_size=(256,256))
+    side = OpenGLBackend.FrameCurves.QUEUE_LIMITS.image_side
+    isnothing(b.raster_registry) && return Vellum.Capabilities(;features,max_image_size=(side,side))
     pages = OpenGLBackend.RasterPages
     return Vellum.Capabilities(features=(features...,:image_provider_revision_v1,Symbol("image_storage.tiled"),:linear_srgb_image),
         formats=pages.PAGE_FORMATS,max_image_size=(pages.SOURCE_SIDE,pages.SOURCE_SIDE))

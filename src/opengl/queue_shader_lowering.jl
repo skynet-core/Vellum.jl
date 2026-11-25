@@ -1,6 +1,8 @@
 """GLSL spellings for Julia types used in the Vulkan draw kernel."""
 const shader_types = Dict(:Int=>"int",:UInt32=>"uint",:Bool=>"bool",:Float32=>"float",:Float64=>"double",
-    :PointI=>"ivec2",:PointD=>"dvec2",:Pixel=>"vec4",:PacketTables=>"PacketTables")
+    :PointI=>"ivec2",:PointD=>"dvec2",:Pixel=>"vec4",:PacketTables=>"PacketTables",:DrawPass=>"DrawPass",
+    :Nothing=>"void",:word_float=>"uintBitsToFloat",:float_word=>"floatBitsToUint",
+    :write_scratch! => "write_scratch", :execute_pass! => "execute_pass")
 
 """
     shader_expr(ex)
@@ -64,6 +66,7 @@ function shader_stmt(ex)
     elseif ex.head === :while
         return "while ("*shader_expr(a[1])*") {\n"*shader_stmt(a[2])*"}\n"
     elseif ex.head === :return
+        (isempty(a) || only(a) === :nothing) && return "return;\n"
         return "return "*shader_expr(only(a))*";\n"
     elseif ex.head in (:continue,:break)
         return String(ex.head)*";\n"
@@ -71,7 +74,7 @@ function shader_stmt(ex)
         name,type = a[1].args
         if type === :LayerStack
             a[2] == :(LayerStack(undef)) || error("expected an uninitialized layer stack")
-            return "vec4 $name[3];\n"
+            return "vec4 $name[$(QUEUE_LIMITS.depth+1)];\n"
         end
         return shader_expr(type)*" "*String(name)*" = "*shader_expr(a[2])*";\n"
     elseif ex.head in (:(=),:+=,:-=,:*=)
@@ -94,7 +97,7 @@ macro draw_kernel(block)
         signature,body = fn.args
         call,ret = signature.args
         params = [shader_expr(arg.args[2])*" "*String(arg.args[1]) for arg in call.args[2:end] if arg !== :data]
-        push!(chunks,shader_expr(ret)*" "*String(call.args[1])*"("*join(params,", ")*") {\n"*shader_stmt(body)*"}\n")
+        push!(chunks,shader_expr(ret)*" "*shader_expr(call.args[1])*"("*join(params,", ")*") {\n"*shader_stmt(body)*"}\n")
     end
     return quote
         $(esc(block))

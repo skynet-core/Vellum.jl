@@ -155,7 +155,7 @@ Treat all published maps and orderings as read-only so later frames can
 share a completed cache without changing its state on failure.
 """
 struct Resident
-    dense::Dense.Slots
+    dense::Dense.SlotTable
     pages::Dict{TileKey,Int}
     cached::Union{Dict{TileKey,Int},PageCache}
     recency::Vector{UInt16}
@@ -493,10 +493,10 @@ function allocate_slots!(selection::Selection,resident::Resident,dense,resolved:
             sizehint!(idle,min(capacity,length(previous)+length(missing)))
             selected = falses(capacity)
             for slot in values(active)
-                slot >= 0 && (selected[slot-Dense.SLOT_COUNT+1] = true)
+                slot >= 0 && (selected[slot-length(dense)+1] = true)
             end
             for slot in resident.recency
-                selected[Int(slot)-Dense.SLOT_COUNT+1] || push!(idle,slot)
+                selected[Int(slot)-length(dense)+1] || push!(idle,slot)
             end
         end
         if isempty(missing)
@@ -511,14 +511,14 @@ function allocate_slots!(selection::Selection,resident::Resident,dense,resolved:
             end
         else
             for slot in values(retained ? previous : active)
-                slot >= 0 && (free[slot-Dense.SLOT_COUNT+1] = false)
+                slot >= 0 && (free[slot-length(dense)+1] = false)
             end
         end
         protected = falses(capacity)
         if streamed
             for slot in values(resident.pages)
-                protected[slot-Dense.SLOT_COUNT+1] = true
-                retained || (free[slot-Dense.SLOT_COUNT+1] = false)
+                protected[slot-length(dense)+1] = true
+                retained || (free[slot-length(dense)+1] = false)
             end
         end
 
@@ -527,22 +527,22 @@ function allocate_slots!(selection::Selection,resident::Resident,dense,resolved:
         for ordinal in missing
             index = findnext(free,first_free)
             if index === nothing
-                while streamed && first_idle <= length(idle) && protected[Int(idle[first_idle])-Dense.SLOT_COUNT+1]
+                while streamed && first_idle <= length(idle) && protected[Int(idle[first_idle])-length(dense)+1]
                     first_idle += 1
                 end
                 first_idle <= length(idle) || V.model_error(:resource_limit,"replacement would evict a completed source page")
                 slot = Int(idle[first_idle])
-                evicted[slot-Dense.SLOT_COUNT+1] = true
+                evicted[slot-length(dense)+1] = true
                 first_idle += 1
             else
-                slot = Dense.SLOT_COUNT+index-1
+                slot = length(dense)+index-1
                 first_free = index+1
             end
             active[recent[ordinal]] = slot
             resolved[ordinal] = slot
         end
         if any(evicted)
-            filter!(slot -> !evicted[Int(slot)-Dense.SLOT_COUNT+1],idle)
+            filter!(slot -> !evicted[Int(slot)-length(dense)+1],idle)
         end
         cached = if !retained
             active
@@ -552,7 +552,7 @@ function allocate_slots!(selection::Selection,resident::Resident,dense,resolved:
             cache = copy(previous)
             sizehint!(cache,min(capacity,length(previous)+length(missing)))
             if any(evicted)
-                filter!(entry -> !evicted[last(entry)-Dense.SLOT_COUNT+1],cache)
+                filter!(entry -> !evicted[last(entry)-length(dense)+1],cache)
             end
             for ordinal in missing
                 cache[recent[ordinal]] = resolved[ordinal]

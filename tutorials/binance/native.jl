@@ -42,7 +42,7 @@ function chart_model(symbol,rows,status;interval="1m",latest=isempty(rows) ? not
 end
 
 """Connect the native window's market and input events to Vellum's frame presenter."""
-function native_window(symbol,view,platform;renderer=:cpu,before_swap=(w,b)->nothing)
+function native_window(symbol,view,platform;renderer=:cpu,before_swap=nothing)
     H = Vellum.GLHost
     H.with_frame_window(plot.width,plot.height,symbol*" · Spot";platform,target=renderer) do window,present
         bars = NamedTuple[]
@@ -117,7 +117,8 @@ function native_window(symbol,view,platform;renderer=:cpu,before_swap=(w,b)->not
                 if key != previous
                     latest = isempty(bars) ? nothing : last(bars)
                     model = chart_model(symbol,shown,status;interval,latest,index,y,following=isnothing(anchor))
-                    present(drawing(view,model);before_swap=image->before_swap(window,shown))
+                    hook = isnothing(before_swap) ? nothing : image->before_swap(window,shown)
+                    present(drawing(view,model);before_swap=hook)
                     previous = key
                 end
             end

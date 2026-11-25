@@ -30,6 +30,8 @@ Base.@kwdef mutable struct Target
     memory_types::Vector{UInt32} = UInt32[]
     plan::Buffer = EMPTY_BUFFER
     atlas::Buffer = EMPTY_BUFFER
+    replacement_atlas::Buffer = EMPTY_BUFFER
+    atlas_layout::Backend.QueueAtlas = Backend.QueueAtlas(Packed.RasterPages.page_capacity(size),zeros(Int,Backend.QUEUE_DENSE_SLOTS))
     offsets::Buffer = EMPTY_BUFFER
     output::NTuple{2,Buffer} = (EMPTY_BUFFER,EMPTY_BUFFER)
     staging::Buffer = EMPTY_BUFFER
@@ -40,10 +42,10 @@ Base.@kwdef mutable struct Target
     valid_bits::UInt32 = 0
     period_ns::Float64 = 0
     ticks::Union{Nothing,NTuple{2,UInt64}} = nothing
-    sources::Packed.RasterPages.Resident = Packed.RasterPages.EMPTY
+    sources::Packed.RasterPages.Resident = Backend.empty_queue_sources()
     shapes::Packed.FrameCurves.ShapeCache = Packed.FrameCurves.EMPTY_SHAPES
     workspace::Packed.FrameCurves.Workspace = Packed.FrameCurves.Workspace()
-    banks::Vector{UInt32} = zeros(UInt32,Packed.RasterAssets.SLOT_COUNT+Packed.RasterPages.page_capacity(size))
+    banks::Vector{UInt32} = zeros(UInt32,Backend.QUEUE_DENSE_SLOTS+Packed.RasterPages.page_capacity(size))
     published::Int = 0
     frames::Int = 0
     uploaded::Int = 0
@@ -243,8 +245,9 @@ function setup_pipeline!(t,program)
         t.set_layout = create_handle(VkDescriptorSetLayout,vkCreateDescriptorSetLayout,t.device,Ref(info))
     end
     layouts = [t.set_layout]
-    GC.@preserve layouts begin
-        info = VkPipelineLayoutCreateInfo(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,C_NULL,0,1,pointer(layouts),0,C_NULL)
+    ranges = [VkPushConstantRange(VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(Backend.QueueKernel.DrawPass))]
+    GC.@preserve layouts ranges begin
+        info = VkPipelineLayoutCreateInfo(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,C_NULL,0,1,pointer(layouts),1,pointer(ranges))
         t.layout = create_handle(VkPipelineLayout,vkCreatePipelineLayout,t.device,Ref(info))
         sizes = [VkDescriptorPoolSize(storage,4)]
         GC.@preserve sizes begin
@@ -287,18 +290,6 @@ function setup_pipeline!(t,program)
 end
 
 """
-    slot_offset(slot,bank)
-
-Return the RGBA-word offset for one physical version of a dense slot or page.
-"""
-function slot_offset(slot,bank)
-    dense = Packed.RasterAssets.SLOT_COUNT
-    dense_words = Packed.RasterAssets.MAX_SIDE^2
-    page_words = Packed.RasterPages.SIDE^2
-    return slot < dense ? (2slot+bank)*dense_words : 2dense*dense_words+(2(slot-dense)+bank)*page_words
-end
-
-"""
     open_target(selector,size;program=draw_program(),window=nothing)
 
 Open an independent Vulkan device and double-buffered target, unwinding partial initialization on error.
@@ -311,7 +302,7 @@ function open_target(selector,size;program=draw_program(),window=nothing)
         storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
         t.plan = alloc_buffer(t,Packed.RECORD_BYTES,storage;host=true)
         t.offsets = alloc_buffer(t,sizeof(t.banks),storage;host=true)
-        t.atlas = alloc_buffer(t,4slot_offset(length(t.banks),0),storage|VK_BUFFER_USAGE_TRANSFER_DST_BIT)
+        t.atlas = alloc_buffer(t,4t.atlas_layout.words,storage|VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
         output_usage = isnothing(window) ? storage : storage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
         t.output = (alloc_buffer(t,4prod(size),output_usage;host=true),EMPTY_BUFFER)
         t.output = (t.output[1],alloc_buffer(t,4prod(size),output_usage;host=true))
@@ -349,7 +340,7 @@ function release!(t)
             t.pending = nothing
         end
         !isnothing(t.window) && free_window_device!(t)
-        for buffer in (t.staging,t.output...,t.atlas,t.offsets,t.plan)
+        for buffer in (t.staging,t.output...,t.replacement_atlas,t.atlas,t.offsets,t.plan)
             free_buffer(t.device,buffer)
         end
         for (destroy,handle) in ((vkDestroyQueryPool,t.queries),(vkDestroyFence,t.fence),(vkDestroyCommandPool,t.pool),

@@ -9,12 +9,16 @@ layout(local_size_x=8,local_size_y=8) in;
 layout(std430,binding=0) readonly buffer Plan { double words[]; };
 layout(std430,binding=1) readonly buffer Atlas { uint texels[]; };
 layout(std430,binding=2) readonly buffer Slots { uint base[]; };
-layout(std430,binding=3) writeonly buffer Output { uint pixels[]; };
+layout(std430,binding=3) buffer Output { uint pixels[]; };
 struct PacketTables { int shape; int contour; int point; int stop; int raster; int page; };
+struct DrawPass { $(join(("int "*String(k)*";" for k in fieldnames(Backend.QueueKernel.DrawPass))," ")) };
+layout(push_constant) uniform Dispatch { DrawPass pass; };
 $KERNEL_FUNCTIONS
 void main() {
     ivec2 p=ivec2(gl_GlobalInvocationID.xy);
-    if (p.x<int(words[1]) && p.y<int(words[2])) pixels[p.y*int(words[1])+p.x]=$output;
+    if (p.x>=pass.width || p.y>=pass.height) return;
+    if (pass.mode==0) pixels[p.y*pass.width+p.x]=$output;
+    else execute_pass(pass,p);
 }
 """
 
