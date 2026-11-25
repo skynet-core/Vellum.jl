@@ -22,6 +22,26 @@ function evaluate(ws, expr)
     return get(response["result"],"value",nothing)
 end
 
+"""Observe real browser API submissions and vertex uploads, including their Wasm caller."""
+const trace_device_calls = @browser ()->begin
+    window.vellumTrace = d(canvas=0,webgl2=0,webgpu=0,uploads=0)
+    @var watch = (proto,method,target)->begin
+        @var original = proto[method]
+        proto[method] = @new Proxy(original,d(apply=(fn,self,args)->begin
+            if target==="uploads" || (window.vellumTrace[target]===0 && (@new Error()).stack.includes("wasm-function"))
+                window.vellumTrace[target] = window.vellumTrace[target]+1
+            end
+            return Reflect.apply(fn,self,args)
+        end))
+    end
+    watch(CanvasRenderingContext2D.prototype,"fill","canvas")
+    watch(WebGL2RenderingContext.prototype,"drawArraysInstanced","webgl2")
+    watch(WebGL2RenderingContext.prototype,"bufferData","uploads")
+    if window.GPURenderPassEncoder
+        watch(GPURenderPassEncoder.prototype,"draw","webgpu")
+    end
+end
+
 """Compare the visible output of every browser renderer with zero-based reference pixels."""
 function check_scene(ws, label, probes; tolerance=0, ink_regions=())
     state = @browser Array.from(document.querySelectorAll("section"), panel -> [panel.dataset.state,
@@ -207,6 +227,39 @@ function check_reports(ws)
     @test all(row -> !startswith(row[6],"src/") || Tuple(row[5:7]) in methods,gpu)
 end
 
+"""Send fresh model data through a Wasm drawing layer and inspect pixels and API calls on each device."""
+function check_data_devices(ws,dir)
+    layer = drawing_layer(:items) do edit,row,model
+        rectangle!(edit,0,0,48,30;fill=row.color)
+        draw_label!(edit,row.text,21,23;size=18,fill=0xffffff)
+    end
+    font = FontData("Liberation Sans",read(joinpath(pkgdir(Vellum),"test","fixtures","LiberationSans-Regular.ttf")))
+    view = DataDrawing("Live backend check",(48,30),font,[layer])
+    model = (first=(items=[(color=0xff0000,text="O")],),second=(items=[(color=0x0000ff,text="8")],))
+    driver = @browser host->begin
+        host.update(host.config.first)
+        host.canvas.addEventListener("click",()->host.update(host.config.second))
+    end
+    for target in (:canvas,:webgl2,:webgpu)
+        @info "Checking live Wasm draws" target
+        path = savehtml(joinpath(dir,"live-$target.html"),view;target,driver,config=model)
+        protocol(ws,"Page.navigate",(url="file://"*path,))
+        ready = "location.pathname.endsWith('/live-$target.html') && document.querySelector('main')?.dataset.state==='ready'"
+        timedwait(()->evaluate(ws,ready),15)===:ok || error("Live $target failed to initialize")
+        evaluate(ws,trace_device_calls*"()")
+        evaluate(ws,"document.querySelector('canvas').click()")
+        @test evaluate(ws,"vellumTrace.$target")==1
+        x,y,w,h = evaluate(ws,@browser begin
+            @var r = document.querySelector("canvas").getBoundingClientRect()
+            return [r.x,r.y,r.width,r.height]
+        end)
+        response = protocol(ws,"Page.captureScreenshot",(format="png",clip=(;x,y,width=w,height=h,scale=1)))
+        pixels = decode_png(base64decode(response["data"]))
+        @test pixels[4,4]==rgbx(0,0,255,255)
+        @test any(p->p.r>180 && p.g>180,pixels)
+    end
+end
+
 include("tutorials.jl")
 include("smoothing.jl")
 
@@ -256,6 +309,10 @@ include("smoothing.jl")
             HTTP.WebSockets.open(tab["webSocketDebuggerUrl"]) do ws
                 protocol(ws, "Emulation.setDeviceMetricsOverride",(width=900,height=800,deviceScaleFactor=1,mobile=false))
                 check_scene(ws,"red",[(4,4,rgbx(255,0,0,255))])
+                @test evaluate(ws,"typeof window.PIXI === 'undefined'")
+                evaluate(ws,trace_device_calls*"()")
+                evaluate(ws,@browser document.querySelector("select").dispatchEvent(@new Event("change")))
+                @test timedwait(()->evaluate(ws,"[vellumTrace.canvas,vellumTrace.webgl2,vellumTrace.webgpu]")==[1,1,1],10)===:ok
                 evaluate(ws,@browser begin
                     @var select = document.querySelector("select")
                     select.selectedIndex = 1
@@ -290,10 +347,14 @@ include("smoothing.jl")
                 for (index,name,pixel) in ((5,"gradient",rgbx(232,23,0,255)),(6,"edited",rgbx(0,0,255,255)),
                                           (7,"removed",rgbx(30,36,56,255)),(6,"edited",rgbx(0,0,255,255)))
                     prior = evaluate(ws,records)
+                    uploads = evaluate(ws,"vellumTrace.uploads")
                     evaluate(ws,"document.querySelector('select').selectedIndex = $index")
                     evaluate(ws,@browser document.querySelector("select").dispatchEvent(@new Event("change")))
                     check_scene(ws,name,[(11,15,pixel),(169,89,rgbx(30,36,56,255))];tolerance=3)
                     @test parse(Int,evaluate(ws,records)) == parse(Int,prior) + (index in visited ? 0 : 1)
+                    if index in visited
+                        @test evaluate(ws,"vellumTrace.uploads")==uploads
+                    end
                     push!(visited,index)
                 end
                 renderer = evaluate(ws,@browser begin
@@ -303,6 +364,7 @@ include("smoothing.jl")
                 end)
                 @test startswith(renderer[1],"WebGL 2")
                 println("Retained browser revisions: ",join(renderer," / "))
+                check_data_devices(ws,dir)
                 "--reports" in ARGS && check_reports(ws)
                 "--workshops" in ARGS && check_workshops(ws,dir)
                 "--live-binance" in ARGS && check_live_market(ws,dir)

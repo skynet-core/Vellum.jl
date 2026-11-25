@@ -1,10 +1,12 @@
 # Vellum Playground
 
-Edit a Julia drawing in the left panel and press **Run Julia** or **Ctrl/⌘ + Enter**. The right panel runs Vellum's Canvas 2D or WebGL2 renderer in your browser. Changing the renderer reruns the current source. The status reports the context the browser opened and the physical canvas dimensions. A failed edit displays its Julia error and keeps the last drawing visible.
+Edit a Julia drawing in the left panel and press **Run Julia** or **Ctrl/⌘ + Enter**. The right panel runs Vellum's Canvas 2D, WebGL2 or WebGPU renderer in your browser. Changing the renderer reruns the current source. The status reports the context the browser opened and the physical canvas dimensions. A failed edit displays its Julia error and keeps the last drawing visible.
 
 ## Run the tutorials
 
-Choose a lesson above the editor. Every runnable tutorial in the checkout has an editable Julia source and prebuilt Canvas 2D and WebGL2 previews. Selecting a lesson or changing its backend opens the corresponding export. **Run Julia** executes the editor contents in an isolated worker. The Notebook link downloads the Julia notebook for the selected lesson. Switching lessons keeps edits in memory for the current page session. Link directly to a lesson by appending its filename stem to the URL, for example `/#liquid_glass` or `/#candlesticks`.
+WebGPU needs a compatible browser and a secure context, such as HTTPS or localhost.
+
+Choose a lesson above the editor. Every runnable tutorial in the checkout has an editable Julia source and prebuilt Canvas 2D, WebGL2 and WebGPU previews. Selecting a lesson or changing its backend opens the corresponding export. **Run Julia** executes the editor contents in an isolated worker. The Notebook link downloads the Julia notebook for the selected lesson. Switching lessons keeps edits in memory for the current page session. Link directly to a lesson by appending its filename stem to the URL, for example `/#liquid_glass` or `/#candlesticks`.
 
 The Liquid Glass framework lesson implements its button, switch, slider and event handling in the editor. The live chart preview permits connections to the two official Binance market-data hosts. The Julia worker runs offline for every lesson.
 
@@ -20,7 +22,7 @@ docker compose up -d --no-build --pull never --wait
 
 Open **http://127.0.0.1:8080/**. Use `/#liquid_glass` to open the glass framework tutorial directly. To pin a deployment or roll back, set `VELLUM_IMAGE_TAG=sha-<full Git commit>` in the environment before **both** commands. The default tag is `latest`. If the packages are private, sign in to GHCR with an account that has package read access before pulling.
 
-The [Playground images workflow](../../.github/workflows/playground.yml) builds on native Linux amd64 and arm64 runners. Each starts its Compose stack, serves the bundled lessons, and executes Julia through the web service for both Canvas and WebGL2. After both architectures pass, the workflow creates matching multi-platform tags for `ghcr.io/skynet-core/vellum.jl/playground-service` and `ghcr.io/skynet-core/vellum.jl/playground-worker`. Pushing to `main` or dispatching the workflow on `main` triggers publication. A deployment host pulls these images explicitly.
+The [Playground images workflow](../../.github/workflows/playground.yml) builds on native Linux amd64 and arm64 runners. Each starts its Compose stack, serves the bundled lessons, and executes Julia through the web service for Canvas 2D, WebGL2 and WebGPU. After both architectures pass, the workflow creates matching multi-platform tags for `ghcr.io/skynet-core/vellum.jl/playground-service` and `ghcr.io/skynet-core/vellum.jl/playground-worker`. Pushing to `main` or dispatching the workflow on `main` triggers publication. A deployment host pulls these images explicitly.
 
 ## Build from source
 
@@ -32,7 +34,7 @@ docker compose -f public/playground/compose.yaml --profile build build worker-im
 docker compose -f public/playground/compose.yaml up -d --no-build --pull never --wait
 ```
 
-Open **http://127.0.0.1:8080/**. The initial drawing runs automatically. The first build downloads Julia packages and browser rendering artifacts. Workers use the installed copy of this checkout and render offline. Rebuild both images after changing Vellum, the sample or the playground code.
+Open **http://127.0.0.1:8080/**. The initial drawing runs automatically. The first build downloads Julia packages and their platform binaries. Workers use the installed copy of this checkout and render offline. Rebuild both images after changing Vellum, the sample or the playground code.
 
 To inspect or stop the services:
 
@@ -77,7 +79,7 @@ end
 1. The editor sends up to 32 KiB of Julia source and a renderer choice to the web service.
 2. The broker starts a new worker from a fixed image. Only the source enters its standard input. The worker has an unprivileged UID, a read-only root filesystem, a 96 MiB temporary filesystem, no network, no host mounts, a one-CPU limit and 1 GiB of memory. The broker bounds output and enforces a 60-second execution deadline. A second request while it is busy receives HTTP 429.
 3. In the worker, Julia evaluates the buffer as `sketch.jl` and calls Vellum's `savehtml` on the resulting drawing. The exported page includes its Wasm program and renderer. Julia evaluation happens in the worker. Graphics commands run on the viewer's browser.
-4. The web service returns the preview document to an iframe with an opaque origin. The embedded content cannot read the editor. The Compose web service has no engine socket. The separate broker has engine-level authority and accepts only the two fixed rendering endpoints on its internal network.
+4. The web service returns the preview document to an iframe with an opaque origin. The embedded content cannot read the editor. The Compose web service has no engine socket. The separate broker has engine-level authority and accepts only the three fixed rendering endpoints on its internal network.
 
 Drafts live in browser memory for the current page session. The repository includes the editable Julia sources, notebooks, Docker configuration and standalone tutorial previews. The service image regenerates those previews from the Julia lessons when it builds.
 

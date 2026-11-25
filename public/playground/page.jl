@@ -18,7 +18,7 @@ const preview_monitor = @browser () -> begin
                 parent.postMessage(d(kind="vellum-preview",error="The preview canvas has no visible area."),"*")
                 return
             end
-            @var renderer = canvas.getContext("webgl2") ? "WebGL2" : (canvas.getContext("2d") ? "Canvas 2D" : "Unknown context")
+            @var renderer = canvas.getContext("webgl2") ? "WebGL2" : (canvas.getContext("2d") ? "Canvas 2D" : (canvas.getContext("webgpu") ? "WebGPU" : "Unknown context"))
             parent.postMessage(d(kind="vellum-preview",renderer=renderer,width=canvas.width,height=canvas.height),"*")
         elseif (section && section.dataset.state === "error") || (problem && problem.textContent)
             parent.postMessage(d(kind="vellum-preview",error=section && section.dataset.state === "error" ? section.textContent : problem.textContent),"*")
@@ -112,7 +112,7 @@ const editor_script = @browser () -> begin
             if ev.data.error
                 fail(ev.data.error)
             else
-                @var expected = target.value === "webgl2" ? "WebGL2" : "Canvas 2D"
+                @var expected = target.value === "webgl2" ? "WebGL2" : (target.value === "webgpu" ? "WebGPU" : "Canvas 2D")
                 if ev.data.renderer !== expected
                     fail("The requested "+expected+" context is unavailable.")
                     return
@@ -201,7 +201,7 @@ function editor_page()
     <label class=lesson>Lesson <select id=lesson><option value="">Custom sketch</option></select></label>
     <div class=panels><section class=source aria-labelledby=editor-label><div class=bar><h2 id=editor-label>Julia editor</h2><span class=file><a id=notebook hidden>Notebook</a> <span id=filename>sketch.jl</span></span></div>
     <textarea id=source aria-labelledby=editor-label spellcheck=false autocapitalize=off></textarea><footer><span id=cursor></span><span>Ctrl / ⌘ + Enter</span></footer></section>
-    <section aria-labelledby=preview-label><div class=bar><h2 id=preview-label>Preview</h2><select id=backend aria-label="Preview renderer"><option value=webgl2>WebGL2</option><option value=canvas>Canvas 2D</option></select></div>
+    <section aria-labelledby=preview-label><div class=bar><h2 id=preview-label>Preview</h2><select id=backend aria-label="Preview renderer"><option value=webgl2>WebGL2</option><option value=canvas>Canvas 2D</option><option value=webgpu>WebGPU</option></select></div>
     <div id=preview></div><pre id=errors role=alert hidden></pre><footer><span id=status aria-live=polite>Ready</span><span id=details></span></footer></section></div></main>
     <script>const lessons=$(script_data(lessons)),marketPrelude=$(script_data(market_prelude)),sample=$(script_data(sample)),prelude=$(script_data(prelude)),monitor=$(script_data(monitor));$editor_script();</script></html>"""
 end

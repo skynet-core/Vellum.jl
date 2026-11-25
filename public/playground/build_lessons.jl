@@ -1,10 +1,10 @@
 include("catalog.jl")
 include("render.jl")
 
-"""Build a standalone Canvas and WebGL2 export by executing the actual source of each lesson."""
+"""Build standalone Canvas, WebGL2 and WebGPU exports by executing the actual source of each lesson."""
 function build_lessons()
     destination = mkpath(preview_dir())
-    for lesson in playground_lessons(), target in (:canvas,:webgl2)
+    for lesson in playground_lessons(), target in (:canvas,:webgl2,:webgpu)
         filename = lesson.id*"-"*string(target)*".html"
         @info "Building tutorial" filename
         html = render_buffer(lesson.source,target)

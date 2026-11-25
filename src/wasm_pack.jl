@@ -1,4 +1,3 @@
-using LazyArtifacts: @artifact_str
 import JSON
 import Wasmtime_jll
 
@@ -34,17 +33,18 @@ function _wat2wasm(source::String)
 end
 
 include("browser_bindings.jl")
+include("browser_geometry.jl")
+include("browser_devices.jl")
 include("browser_viewer.jl")
 
+"""Pack a Vellum affine transform in the six-component order used by Canvas and the GPU shaders."""
 _browser_matrix(m) = (m[1,1], m[1,2], m[2,1], m[2,2], m[3,1], m[3,2])
-function _browser_path(path,matrix,winding)
-    data = _svgPathD(path)
-    return (;path=data,matrix=_browser_matrix(matrix),evenodd=winding === EvenOdd,compound=count(c -> c in ('M','m'),data)>1)
-end
+"""Encode a gradient handle using named logical coordinates."""
 _browser_point(p) = (x=p.x, y=p.y)
 
-function _browser_op(op::FillOp)
-    path = _browser_path(op.path, op.tform, op.windingRule)
+"""Lower a retained path or group operation to a browser display-list record."""
+function _browser_op(op::FillOp,cache)
+    path = (matrix=_browser_matrix(op.tform),mesh=_browser_mesh(op,cache))
     paint = op.paint
     if paint.kind === SolidPaint
         return (; kind="fill", path..., style=(color=_svgHex(paint.color), alpha=_svgSolidOpacity(paint)))
@@ -63,16 +63,16 @@ function _browser_op(op::FillOp)
     return (; kind="gradient", path..., options, alpha=paint.opacity)
 end
 
-function _browser_op(op::StrokeOp)
+function _browser_op(op::StrokeOp,cache)
     style = (color=_svgHex(op.paint.color), alpha=_svgSolidOpacity(op.paint), width=op.width,
              cap=op.cap === RoundCap ? "round" : op.cap === SquareCap ? "square" : "butt",
              join=op.join === RoundJoin ? "round" : op.join === BevelJoin ? "bevel" : "miter",
              miterLimit=op.miterLimit)
-    return (; kind="stroke", _browser_path(op.path, op.tform, NonZero)..., style)
+    return (; kind="stroke", matrix=_browser_matrix(op.tform), mesh=_browser_mesh(op,cache), style)
 end
 
-_browser_op(op::GroupStart) = (kind="push", alpha=op.opacity)
-_browser_op(op::GroupEnd) = (kind="pop", clips=[_browser_path(c.path,c.transform,c.windingRule) for c in op.clips])
+_browser_op(op::GroupStart,cache) = (kind="push", alpha=op.opacity)
+_browser_op(op::GroupEnd,cache) = isempty(op.clips) ? (;kind="pop") : (kind="pop",mesh=_browser_clip_mesh(op.clips))
 
 """Encode a crop once in the straight-alpha format accepted by browser ImageData."""
 function _browser_pixels(image)
@@ -83,15 +83,16 @@ function _browser_pixels(image)
         k = 4i - 3
         bytes[k], bytes[k+1], bytes[k+2], bytes[k+3] = c.r, c.g, c.b, c.a
     end
-    return base64encode(bytes)
+    return bytes
 end
 
-function _browser_scene(scene::Union{Frame,Canvas},crops=DocumentCrops(),images=IdDict{Image,String}())
+"""Collect drawing operations for a browser scene and share immutable geometry and images across frames."""
+function _browser_scene(scene::Union{Frame,Canvas},crops=DocumentCrops(),images=IdDict{Image,Vector{UInt8}}(),meshes=Dict{Any,Vector{Float32}}())
     frame = scene isa Canvas ? snapshot(scene) : scene
     picture, _ = _document_picture(frame, RenderPolicy(),crops)
     _svgPreScan(picture)
     operations = map(picture.ops) do op
-        op isa DocumentImageOp || return _browser_op(op)
+        op isa DocumentImageOp || return _browser_op(op,meshes)
         pixels = get!(() -> _browser_pixels(op.image),images,op.image)
         (;kind="image",width=op.image.width,height=op.image.height,data=pixels,
           sampling=op.sampling,matrix=_browser_matrix(op.imageMat))
@@ -123,10 +124,19 @@ function _browser_scene(path::AbstractString, julia::AbstractString)
     end
 end
 
+"""Write a nonnegative WebAssembly section or byte-vector length as unsigned LEB128."""
+function _wasm_length!(io,n)
+    while n>=128
+        write(io,UInt8(n%128+128))
+        n >>= 7
+    end
+    write(io,UInt8(n))
+end
+
 """Compile the gallery's scene command streams to a single WebAssembly module in process.
 Each scene references immutable length-prefixed drawing commands shared in linear memory.
 The host import consumes one draw command at a time in paint order."""
-function _browser_wasm(scenes, transitions=nothing)
+function _browser_wasm(scenes, transitions=nothing; focus=())
     data = IOBuffer()
     entries = IOBuffer()
     if transitions !== nothing
@@ -142,11 +152,35 @@ function _browser_wasm(scenes, transitions=nothing)
             "(i32.mul (global.get \$state) (i32.const $actions)))))))) (global.get \$state))")
     end
     records = Dict{Any,UInt32}()
-    for (index, scene) in enumerate(scenes)
+    meshes = Dict{Vector{Float32},UInt32}()
+    images = Dict{Vector{UInt8},UInt32}()
+    for (index, scene) in enumerate(Iterators.flatten((scenes,focus)))
         offsets = map(scene.operations) do op
             get!(records,op) do
+                command = if hasproperty(op,:mesh)
+                    address = get!(meshes,op.mesh) do
+                        while position(data)%4 != 0
+                            write(data,UInt8(0))
+                        end
+                        location = UInt32(position(data))
+                        for bits in reinterpret(UInt32,op.mesh)
+                            write(data,htol(bits))
+                        end
+                        location
+                    end
+                    merge(op,(mesh=(;address,count=length(op.mesh)),))
+                elseif op.kind=="image"
+                    address = get!(images,op.data) do
+                        location = UInt32(position(data))
+                        write(data,op.data)
+                        location
+                    end
+                    merge(op,(data=(;address,count=4*op.width*op.height),))
+                else
+                    op
+                end
                 offset = UInt32(position(data))
-                bytes = codeunits(JSON.json(op))
+                bytes = codeunits(JSON.json(command))
                 write(data,htol(UInt32(length(bytes))),bytes)
                 offset
             end
@@ -154,23 +188,14 @@ function _browser_wasm(scenes, transitions=nothing)
         offset = position(data)
         foreach(p -> write(data,htol(p)),offsets)
         position(data) <= typemax(Int32) || throw(ArgumentError("browser scene exceeds 2 GiB"))
-        println(entries, "(func (export \"scene$index\") i32.const $offset i32.const ",
+        entry = index <= length(scenes) ? "scene$index" : "focus$(index-length(scenes))"
+        println(entries, "(func (export \"$entry\") i32.const $offset i32.const ",
                 length(scene.operations), " call \$render)")
     end
     bytes = take!(data)
     wat = IOBuffer()
     println(wat, "(module (import \"vellum\" \"draw\" (func \$draw (param i32 i32)))")
     println(wat, "(memory (export \"memory\") ", cld(length(bytes), 65536), ")")
-    print(wat, "(data (i32.const 0) \"")
-    for byte in bytes
-        # WAT byte strings accept printable ASCII other than quote and backslash.
-        if 0x20 <= byte <= 0x7e && !(byte in (0x22, 0x5c))
-            write(wat, byte)
-        else
-            print(wat, '\\', string(byte, base=16, pad=2))
-        end
-    end
-    println(wat, "\")")
     print(wat, raw"""
         (func $render (param $p i32) (param $n i32) (local $record i32)
           (block $done (loop $next
@@ -182,7 +207,18 @@ function _browser_wasm(scenes, transitions=nothing)
             (br $next))))
         """)
     write(wat, take!(entries), ")")
-    return _wat2wasm(String(take!(wat)))
+    module_bytes = _wat2wasm(String(take!(wat)))
+    # The active data segment follows the assembled code. Mesh and image bytes
+    # stay binary throughout assembly, including zeros and high bytes.
+    segment = IOBuffer()
+    write(segment,UInt8[1,0,0x41,0,0x0b])
+    _wasm_length!(segment,length(bytes))
+    payload_size = position(segment)+length(bytes)
+    output = IOBuffer()
+    write(output,module_bytes,UInt8(11))
+    _wasm_length!(output,payload_size)
+    write(output,take!(segment),bytes)
+    return take!(output)
 end
 
 """
@@ -267,18 +303,27 @@ end
 
 Compile a portable module with linear memory, `current()`, `dispatch(action)`
 and a drawing entry point `sceneN()` per frame. The integer state and action
-ABI is zero-based. Scene export names begin at 1. Supply the host import
+ABI is zero-based. Scene export names begin at 1. Apps with default keyboard
+feedback also export `focusN()` to draw a control's focus ring. Supply the host import
 `vellum.draw(offset, byte_count)` to consume each UTF-8 drawing command.
+A mesh contains an aligned byte address and a Float32 element count in the
+module's exported memory. Each six-float trapezoid stores left and right x
+coordinates at its top, then at its bottom, followed by the two y coordinates.
+Image data references a byte address and count of straight RGBA8 pixels.
 """
 function wasm_module(drawing::InteractiveDrawing)
     # Input states can share the very same immutable frame while awaiting different events.
     cache = IdDict{Frame,NamedTuple}()
     crops = DocumentCrops()
-    images = IdDict{Image,String}()
+    images = IdDict{Image,Vector{UInt8}}()
+    meshes = Dict{Any,Vector{Float32}}()
     scenes = map(drawing.frames) do frame
-        get!(() -> _browser_scene(frame,crops,images),cache,frame)
+        get!(() -> _browser_scene(frame,crops,images,meshes),cache,frame)
     end
-    return _browser_wasm(scenes,drawing.transitions)
+    focus = drawing.feedback ? () : map(drawing.controls) do control
+        _browser_scene(_control_focus(first(drawing.frames).size,control),crops,images,meshes)
+    end
+    return _browser_wasm(scenes,drawing.transitions;focus)
 end
 
 """Record a keyboard focus indicator for a control without custom feedback graphics."""
@@ -306,8 +351,7 @@ function savehtml(path::AbstractString, app::InteractiveDrawing; target=:canvas,
     sizes = [Int.(frame.size) for frame in app.frames]
     inputs = app.feedback ? [(hover=feedback_action(app.controls,i,:hover)-1,
         press=feedback_action(app.controls,i,:press)-1,focus=feedback_action(app.controls,i,:focus)-1) for i in eachindex(app.controls)] : []
-    focus_marks = app.feedback ? [] : [_browser_scene(_control_focus(first(sizes),c)).operations for c in app.controls]
-    config = (;title=app.title,controls=app.controls,values=[collect(row) for row in eachrow(app.values)],app.timers,focus_marks,
+    config = (;title=app.title,controls=app.controls,values=[collect(row) for row in eachrow(app.values)],app.timers,
               feedback=inputs,idle=app.feedback ? feedback_action(app.controls,0,:idle)-1 : -1)
     wasm = wasm_module(app)
     mktemp(dirname(output)) do tmp,io

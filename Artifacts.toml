@@ -1,6 +1,0 @@
-[pixi]
-git-tree-sha1 = "09842daafc38d56e18cd613e8b704fa5c9edf030"
-
-[[pixi.download]]
-url = "https://registry.npmjs.org/pixi.js/-/pixi.js-8.18.0.tgz"
-sha256 = "e10432348caed958dd8af7bf66347a6951b7e50c1b0e41b705fb8528b35c88ef"

@@ -55,7 +55,7 @@ function test_wasm_controls()
     binary = join(string(Char(0x5c),string(b;base=16,pad=2)) for b in wasm_module(app))
     spec = raw"""(module $host (global $calls (mut i32) (i32.const 0))
         (func (export "draw") (param i32 i32) (global.set $calls (i32.add (global.get $calls) (i32.const 1))))
-        (func (export "drawn") (result i32) (i32.gt_u (global.get $calls) (i32.const 0))))
+        (func (export "drawn") (result i32) (global.get $calls)))
     (register "vellum" $host)
     """ * "(module \$app binary \"" * binary * "\")\n" * raw"""
     (assert_return (invoke $app "current") (i32.const 0))
@@ -63,6 +63,8 @@ function test_wasm_controls()
     (assert_return (invoke $app "dispatch" (i32.const -1)) (i32.const 1))
     (invoke $app "scene2")
     (assert_return (invoke $host "drawn") (i32.const 1))
+    (invoke $app "focus1")
+    (assert_return (invoke $host "drawn") (i32.const 3))
     (assert_return (invoke $app "dispatch" (i32.const 0)) (i32.const 0))
     """
     mktempdir() do dir
@@ -74,7 +76,20 @@ function test_wasm_controls()
     end
 end
 
+"""Verify fill rules, intersecting clip paths and crossing-edge bands before WebAssembly packing."""
+function test_browser_geometry()
+    box(x,y,w,h) = [Vellum.Vec2(x,y),Vellum.Vec2(x+w,y),Vellum.Vec2(x+w,y+h),Vellum.Vec2(x,y+h)]
+    area(mesh) = sum(((x[2]-x[1]+x[4]-x[3])*(x[6]-x[5])/2 for x in eachcol(reshape(mesh,6,:)));init=0f0)
+    outer,inner = box(0,0,10,10),box(2,2,6,6)
+    @test area(Vellum._browser_fill_mesh([outer,inner],Vellum.NonZero)) ≈ 100
+    @test area(Vellum._browser_fill_mesh([outer,inner],Vellum.EvenOdd)) ≈ 64
+    @test area(Vellum._browser_fill_mesh([outer,reverse(inner)],Vellum.NonZero)) ≈ 64
+    @test area(Vellum._browser_traps(([outer],[box(5,-2,9,9)]),(Vellum.NonZero,Vellum.NonZero))) ≈ 35
+    @test area(Vellum._browser_fill_mesh([outer[[1,3,2,4]]],Vellum.EvenOdd)) ≈ 50
+end
+
 function test_browser()
+    test_browser_geometry()
     @test Vellum.@browser(-distance) == "(-distance)"
     @testset "Standalone interactive WebAssembly" begin
         test_wasm_controls()
@@ -104,6 +119,9 @@ function test_browser()
                 @test occursin(read(joinpath(pkgdir(Vellum),"LICENSE"),String),html)
                 @test occursin(read(joinpath(pkgdir(Vellum),"NOTICE"),String),html)
                 config = JSON.parse(match(r"<script id=gallery type=application/json>(.*?)</script>",html).captures[1])
+                @test !occursin("PIXI.",html) && !occursin("pixi.min.js",html)
+                @test occursin("gl.drawArraysInstanced",html) == (target in (:webgl2,:compare))
+                @test occursin("device.createRenderPipeline",html) == (target in (:webgpu,:compare))
                 @test config["labels"] == ["</script>","second"]
                 @test config["sizes"] == [[16,12],[9,7]]
                 @test config["targets"] == (target === :compare ? ["canvas","webgl2","webgpu"] : [String(target)])

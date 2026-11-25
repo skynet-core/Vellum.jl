@@ -66,10 +66,10 @@ function check_editor(ws)
     @test timedwait(()->js("document.getElementById('status').textContent")=="Run failed",85)===:ok
     @test occursin("unknown_drawing_name",js("document.getElementById('errors').textContent"))
     @test matching_pixels(rgbx(0,0,255,255)) > 15_000
-    # Exercise every discovered tutorial preset with both real contexts.
+    # Exercise every discovered tutorial preset with each real context.
     catalog = js("Array.from(document.querySelectorAll('#lesson option'),o=>o.value).filter(Boolean)")
     @test sort(catalog)==sort(tutorial_names(pkgdir(Vellum)))
-    for name in catalog, backend in ("canvas","webgl2")
+    for name in catalog, backend in ("canvas","webgl2","webgpu")
         js("document.getElementById('backend').value="*JSON.json(backend))
         js("document.getElementById('lesson').value="*JSON.json(name)*";document.getElementById('lesson').dispatchEvent(new Event('change'))")
         wait_ready()
@@ -83,13 +83,13 @@ function check_editor(ws)
         end
         @test timedwait(()->ink_count()>1000,6;pollint=0.15)==:ok
         @test js("document.getElementById('source').value")==read(joinpath(pkgdir(Vellum),"tutorials",name*".jl"),String)
-        @test startswith(js("document.getElementById('details').textContent"),backend=="canvas" ? "Canvas 2D" : "WebGL2")
+        @test startswith(js("document.getElementById('details').textContent"),backend=="canvas" ? "Canvas 2D" : backend=="webgpu" ? "WebGPU" : "WebGL2")
         if name=="liquid_glass" && backend=="webgl2" && haskey(ENV,"VELLUM_FRAMEWORK_SCREENSHOT")
             shot = cdp(ws,"Page.captureScreenshot",(format="png",))
             write(ENV["VELLUM_FRAMEWORK_SCREENSHOT"],base64decode(shot["data"]))
         end
     end
-    js("document.getElementById('lesson').value='liquid_glass';document.getElementById('lesson').dispatchEvent(new Event('change'))")
+    js("document.getElementById('backend').value='webgl2';document.getElementById('lesson').value='liquid_glass';document.getElementById('lesson').dispatchEvent(new Event('change'))")
     wait_ready()
     original = js("document.getElementById('source').value")
     revised = replace(original,"Listening room"=>"Listening studio")
@@ -105,7 +105,7 @@ url = isempty(ARGS) ? "http://127.0.0.1:8080" : only(ARGS)
     @test HTTP.get(url*"/health").status == 200
     mktempdir() do profile
         browser = get(ENV,"VELLUM_BROWSER","google-chrome")
-        chrome = run(pipeline(`$browser --no-first-run --disable-background-networking --user-data-dir=$profile --headless --enable-unsafe-swiftshader --force-color-profile=srgb --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --window-size=1280,860 $url`;stderr=devnull);wait=false)
+        chrome = run(pipeline(`$browser --no-first-run --disable-background-networking --user-data-dir=$profile --headless --enable-unsafe-webgpu --enable-unsafe-swiftshader --use-angle=swiftshader --enable-features=Vulkan --use-vulkan=swiftshader --force-color-profile=srgb --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --window-size=1280,860 $url`;stderr=devnull);wait=false)
         try
             portfile = joinpath(profile,"DevToolsActivePort")
             timedwait(()->isfile(portfile),20)===:ok || error("Chromium startup failed")

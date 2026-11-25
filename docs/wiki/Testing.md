@@ -10,7 +10,7 @@ Pkg.test()
 
 The headless suite exercises rendering, codecs, resource ownership and browser export. On a Linux desktop with X11 and Wayland available, set `ENV["VELLUM_TEST_GLFW"] = "true"` and `ENV["VELLUM_TEST_WAYLAND"] = "required"` before `Pkg.test()` to require live window checks. An ordinary headless pass establishes the behavior exercised on that run. Look at the platform settings before using a pass as evidence for a display integration.
 
-To test the pixels shown by Canvas2D, WebGL2 and WebGPU, start a fresh Julia process in the checkout and run the following with Chromium installed. Set `ENV["VELLUM_BROWSER"]` to the browser executable when it differs from `google-chrome`. Add `"--headed"` to `ARGS` for a desktop session.
+The browser check traces Canvas path fills, WebGL2 instanced draws and WebGPU render-pass draws back to a Wasm call. It also replays a retained scene and checks that WebGL2 reuses its vertex buffers. To inspect the rendered pixels on all three backends, start a fresh Julia process in the checkout and run the following with Chromium installed. Set `ENV["VELLUM_BROWSER"]` to the browser executable when it differs from `google-chrome`. Add `"--headed"` to `ARGS` for a desktop session.
 
 ```julia
 using Pkg

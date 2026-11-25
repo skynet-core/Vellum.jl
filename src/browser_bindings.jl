@@ -4,6 +4,10 @@ function _browser_stmt(ex, returns=false)
     if Meta.isexpr(ex,:block)
         body = filter(x -> !(x isa LineNumberNode), ex.args)
         return join((_browser_stmt(line,returns && i==length(body)) for (i,line) in enumerate(body)),";")
+    elseif Meta.isexpr(ex,:while)
+        return "while(" * _browser_expr(ex.args[1]) * "){" * _browser_stmt(ex.args[2]) * "}"
+    elseif Meta.isexpr(ex,:call) && first(ex.args) === :throw
+        return "throw " * _browser_expr(ex.args[2])
     elseif Meta.isexpr(ex,:return)
         return "return " * (isempty(ex.args) ? "" : _browser_expr(ex.args[1]))
     elseif Meta.isexpr(ex,:if) || Meta.isexpr(ex,:elseif)
@@ -29,7 +33,7 @@ function _browser_expr(ex::Expr)
             return "{" * join((JSON.json(String(p.args[1])) * ":" * _browser_expr(p.args[2]) for p in arg[2:end]),",") * "}"
         elseif length(arg)==2 && op in (:+,:-)
             return "(" * String(op) * _browser_expr(arg[2]) * ")"
-        elseif op in (:+,:-,:*, :/, :<,:>,:<=,:>=,:(===),:(!==))
+        elseif op in (:+,:-,:*, :/, :%, :<,:>,:<=,:>=,:(===),:(!==))
             return "(" * join(_browser_expr.(arg[2:end]),String(op)) * ")"
         end
         return _browser_expr(op) * "(" * join(_browser_expr.(arg[2:end]),",") * ")"

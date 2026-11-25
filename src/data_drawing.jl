@@ -166,73 +166,74 @@ const data_viewer = @browser () -> begin
     @var cfg = JSON.parse(document.getElementById("view").textContent)
     @var status = document.querySelector("output")
     @var stage = document.querySelector("main")
-    @var root = @new PIXI.Container()
     @var model = nothing
     @var pos = 0
     @var cache = []
     @var renderer = nothing
     @var wasm = nothing
+    @var emit = nothing
     @var ratio = sampling(cfg.size)
+    @var hex = color->"#"+Number(color).toString(16).padStart(6,"0")
     @var node = kind->begin
         @var entry = cache[pos]
         if !entry || entry.kind !== kind
-            if entry
-                root.removeChild(entry.shape)
-                entry.shape.destroy()
+            if entry && entry.run
+                renderer.drop(entry.run.source)
             end
-            @var shape = kind==="rect" ? (@new PIXI.Graphics()).rect(0,0,1,1).fill(16777215) :
-                @new PIXI.Text(d(text="",style=d(fontFamily="VellumView",fontSize=14,fill=16777215),resolution=ratio))
-            root.addChildAt(shape,pos)
-            entry = d(kind=kind,shape=shape)
+            entry = d(kind=kind,mesh=renderer.unit,source=renderer.white,uv=renderer.identity,tint=[1,1,1,1])
             cache[pos] = entry
         end
         pos = pos+1
-        entry.shape.visible = true
-        return entry.shape
+        return entry
     end
     @var value = (l,r,scope,f)->(scope===0 ? model[cfg.layers[l]][r] : model)[cfg.fields[f]]
     @var imports = d(count=l->model[cfg.layers[l]].length,value=value,
         rect=(x,y,w,h,color)->begin
             if w>0 && h>0
-                @var shape = node("rect")
-                shape.position.set(x,y)
-                shape.scale.set(w,h)
-                shape.tint = color
+                @var item = node("rect")
+                item.m = [w,0,0,h,x,y]
+                if item.color !== color
+                    item.color = color
+                    item.solid = hex(color)
+                    item.tint = [Math.floor(color/65536)%256/255,Math.floor(color/256)%256/255,color%256/255,1]
+                end
+                emit(item)
             end
         end,
         label=(l,r,scope,f,x,y,size,color)->begin
             @var text = scope===2 ? cfg.strings[f] : value(l,r,scope,f)
             if text.length
-                @var label = node("label")
-                label.text = text
-                label.style.fontSize = size
-                label.tint = color
-                @var metrics = PIXI.CanvasTextMetrics.measureFont(String(size)+"px VellumView")
-                label.position.set(x,y-metrics.ascent)
+                @var item = node("label")
+                if item.text!==text || item.size!==size || item.color!==color || item.density!==ratio
+                    if item.run
+                        renderer.drop(item.run.source)
+                    end
+                    item.text = text
+                    item.size = size
+                    item.color = color
+                    item.density = ratio
+                    item.run = renderer.label(text,size,hex(color),ratio)
+                    item.source = item.run.source
+                end
+                item.m = [item.source.w/ratio,0,0,item.source.h/ratio,x-item.run.left,y-item.run.top]
+                emit(item)
             end
         end)
     @var update = next->begin
         model = next
         pos = 0
-        wasm.render()
-        cache.slice(pos).forEach(entry->begin
-            entry.shape.visible = false
+        renderer.render(visit->begin
+            emit = visit
+            wasm.render()
         end)
-        renderer.render(root)
         stage.dataset.state = "ready"
     end
     @var font = @new FontFace("VellumView","url(data:font/ttf;base64,"+cfg.font+")")
-    @var preference = cfg.target==="webgl2" ? "webgl" : cfg.target
     @var bytes = Uint8Array.from(atob(document.getElementById("module").textContent),c->c.charCodeAt(0))
-    Promise.all([font.load(),PIXI.autoDetectRenderer(d(preference=[preference],preferWebGLVersion=2,
-        width=cfg.size[0],height=cfg.size[1],resolution=ratio,autoDensity=true,antialias=true)),
-        WebAssembly.instantiate(bytes,d(vellum=imports))]).then(results->begin
+    Promise.all([font.load(),openDevice(cfg.target),WebAssembly.instantiate(bytes,d(vellum=imports))]).then(results->begin
         document.fonts.add(results[0])
         renderer = results[1]
-        if cfg.target==="webgl2" && renderer.context.webGLVersion!==2
-            renderer.destroy()
-            return Promise.reject("WebGL2 unavailable")
-        end
+        renderer.resize(cfg.size[0],cfg.size[1],ratio)
         wasm = results[2].instance.exports
         stage.prepend(renderer.canvas)
         renderer.canvas.tabIndex = 0
@@ -241,11 +242,6 @@ const data_viewer = @browser () -> begin
         watchDensity(() -> begin
             ratio = sampling(cfg.size)
             renderer.resize(cfg.size[0],cfg.size[1],ratio)
-            cache.forEach(entry -> begin
-                if entry.kind === "label"
-                    entry.shape.resolution = ratio
-                end
-            end)
             if model
                 update(model)
             end
@@ -276,7 +272,7 @@ function savehtml(path::AbstractString,view::DataDrawing;driver,config=(;),targe
               view.size[1],"px;margin:auto}canvas{display:block;width:100%!important;height:auto!important;touch-action:none;cursor:crosshair}</style><main><output aria-live=polite>Loading…</output></main>",
               "<script type=application/json id=view>",replace(JSON.json(payload),"<"=>"\\u003c"),"</script><script type=application/wasm id=module>",
               base64encode(program.bytes),"</script>")
-        _write_pixi_runtime(io)
+        _write_browser_devices(io,(target,))
         print(io,"<script>document.title=JSON.parse(document.getElementById('view').textContent).title;const sampling=",_browser_sampling,
               ",watchDensity=",_browser_watch_density,",driver=",driver,";",data_viewer,"();</script></html>")
         close(io)

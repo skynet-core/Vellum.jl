@@ -37,7 +37,7 @@ jobs:
         run: docker compose --profile build build worker-image broker
       - name: Start the exact images to be published
         run: docker compose up -d --no-build --pull never --wait --wait-timeout 180
-      - name: Execute Julia through the web service on both renderers
+      - name: Execute Julia through the web service on all three browser targets
         run: docker compose exec -T web julia --startup-file=no - < public/playground/smoke.jl
       - name: Collect service logs on failure
         if: failure()

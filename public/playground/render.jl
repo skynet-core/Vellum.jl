@@ -2,7 +2,7 @@ using Vellum
 
 """Execute a Julia buffer in a fresh module and directory. Return a Vellum export on the requested backend."""
 function render_buffer(source,target)
-    target in (:canvas,:webgl2) || error("Choose Canvas or WebGL2")
+    target in (:canvas,:webgl2,:webgpu) || error("Choose Canvas 2D, WebGL2 or WebGPU")
     mktempdir() do dir
         cd(dir) do
             withenv("VELLUM_TUTORIAL_OUTPUT"=>dir,"VELLUM_TUTORIAL_HOST"=>"browser","VELLUM_TUTORIAL_RENDERER"=>string(target)) do

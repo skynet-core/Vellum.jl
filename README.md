@@ -14,7 +14,7 @@ savepng("rectangle.png", frame)
 savehtml("gallery.html", (rectangle=frame, empty=Canvas(size=(128,96))); target=:compare)
 ```
 
-The HTML contains the WebAssembly module, scene data and browser renderer. Julia lowers supported paths, strokes, captured text, clips, groups and dense images to draw commands. Wasmtime assembles the scene program in-process. The browser runs it on scene selection. The Julia-authored browser bindings use PixiJS for Canvas 2D, WebGL2 and WebGPU. The page reports unavailable renderers individually. A compatible browser and graphics driver are required for GPU targets. A trusted Julia author file passed to `savehtml` runs in a Julia subprocess.
+The HTML contains the WebAssembly module, scene data and browser renderer. Julia lowers supported paths, strokes, captured text, clips, groups and dense images to draw commands. Wasmtime assembles the scene program in-process. The browser runs it on scene selection. On every replay, Wasm calls Vellum’s Julia-authored host bindings. Canvas 2D fills paths directly. WebGL2 and WebGPU draw instanced trapezoids from Wasm memory with Vellum’s shaders. Captured text uses shaped outlines. Dynamic browser labels use the browser font engine to create small glyph textures. The page reports unavailable renderers individually. A compatible browser and graphics driver are required for GPU targets. A trusted Julia author file passed to `savehtml` runs in a Julia subprocess.
 
 ## Interactive workshops
 
@@ -73,4 +73,4 @@ The tutorial rendering report (`reports/tutorials/index.html`) compares each tut
 
 ## License
 
-Vellum's code, documentation and tutorials are licensed under the [Apache License, Version 2.0](LICENSE). The [project notice](NOTICE) identifies the copyright holders. Third-party components carry their own terms. Standalone HTML exports include the PixiJS MIT license, and the bundled Liberation Sans font uses the [SIL Open Font License 1.1](test/fixtures/LiberationSans-LICENSE.txt).
+Vellum's code, documentation and tutorials are licensed under the [Apache License, Version 2.0](LICENSE). The [project notice](NOTICE) identifies the copyright holders. Third-party components carry their own terms. The bundled Liberation Sans font uses the [SIL Open Font License 1.1](test/fixtures/LiberationSans-LICENSE.txt).

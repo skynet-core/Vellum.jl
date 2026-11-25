@@ -1,4 +1,4 @@
-using Downloads, TOML
+using Downloads
 
 # Source includes are relative to the including file. Project-relative references
 # appear in source comments and README links. Namespace identifiers are not URLs to fetch.
@@ -22,9 +22,6 @@ for path in paths
         url = rstrip(m.match, ('.', ','))
         url == "http://www.w3.org/2000/svg" || push!(urls,String(url))
     end
-end
-for artifact in values(TOML.parsefile(joinpath(root,"Artifacts.toml"))), download in artifact["download"]
-    push!(urls,download["url"])
 end
 guides = [joinpath(root,"README.md")]
 for dir in ("wiki","src")

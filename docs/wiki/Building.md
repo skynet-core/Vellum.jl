@@ -17,7 +17,7 @@ image = rasterize(frame)
 savepng("first-frame.png", image)
 ```
 
-The CPU renderer can run in a headless process with its dependencies installed. Browser export also needs the PixiJS artifact. Generate one gallery while online to provision it. The exported HTML embeds its renderer, scene data and WebAssembly. Open the file in a browser with the graphics APIs you want to exercise.
+The CPU renderer can run in a headless process with its dependencies installed. Browser export embeds Vellum's own Canvas 2D, WebGL2 or WebGPU bindings alongside the Wasm drawing program. The geometry and shaders ship with the export. Open the file in a browser with the graphics APIs you want to exercise.
 
 Desktop window integration requires an accessible display and the appropriate OS driver. The Linux Wayland shared-memory presenter borrows a host surface. The chart workshop can open either a Wayland or an X11 window. Offscreen desktop OpenGL on X11 uses a first-party GLX/Skia provider for solid paths, strokes, clips and isolated groups. The extended bridge profiles require compatible bridges. See the [usage guide](Library-usage.md) and [testing guide](Testing.md).
 

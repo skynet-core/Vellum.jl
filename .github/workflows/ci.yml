@@ -31,6 +31,11 @@ jobs:
       - name: Build and test on Linux
         if: matrix.os == 'Linux'
         run: julia --startup-file=no --project=. tools/ci.jl Linux "${{ matrix.arch }}"
+      - name: Verify Wasm calls and pixels on Canvas 2D, WebGL2 and WebGPU
+        if: matrix.os == 'Linux' && matrix.arch == 'x86_64'
+        run: |
+          julia --startup-file=no --project=tools/browser -e 'using Pkg; Pkg.instantiate()'
+          JULIA_LOAD_PATH="@:$GITHUB_WORKSPACE/tools/browser:@stdlib" julia --startup-file=no --project=. tools/browser/check.jl --enable-unsafe-swiftshader --use-angle=swiftshader --enable-features=Vulkan --use-vulkan=swiftshader
       - name: Build and test inside FreeBSD
         if: matrix.os == 'FreeBSD'
         uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1
