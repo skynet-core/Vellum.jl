@@ -30,22 +30,47 @@ function build_test(kernel,arch)
     headless_test()
 end
 
-"""Install this checkout as a dependency of an empty project, then test it in an isolated process."""
-function headless_test()
+"""Run a consumer check in a temporary project containing this checkout as a dependency."""
+function with_consumer(check)
     root = dirname(@__DIR__)
     previous = Base.active_project()
     mktempdir() do consumer
         try
             Pkg.activate(consumer)
             Pkg.develop(path=root)
-            cmd = `$(Base.julia_cmd()) --startup-file=no --project=$consumer $(joinpath(root,"test","headless.jl"))`
-            load_path = Sys.iswindows() ? "@;@stdlib" : "@:@stdlib"
-            run(addenv(cmd,"JULIA_LOAD_PATH"=>load_path,"DISPLAY"=>nothing,"WAYLAND_DISPLAY"=>nothing,
-                       "VELLUM_GLFW_LIBRARY"=>nothing))
+            cmd = `$(Base.julia_cmd()) --startup-file=no --project=$consumer`
+            check(addenv(cmd,"JULIA_LOAD_PATH"=>join(("@","@stdlib"),Sys.iswindows() ? ';' : ':')),root)
         finally
             Pkg.activate(dirname(previous))
         end
     end
 end
 
-ARGS == ["--headless"] ? headless_test() : build_test(ARGS...)
+"""Verify the minimal installation and its outputs without a display or window providers."""
+function headless_test()
+    with_consumer() do cmd,root
+        test = joinpath(root,"test","headless.jl")
+        run(addenv(`$cmd $test`,"DISPLAY"=>nothing,"WAYLAND_DISPLAY"=>nothing,"VELLUM_GLFW_LIBRARY"=>nothing))
+    end
+end
+
+"""Install the native providers and verify a caller-owned GPU window on both Linux display systems."""
+function desktop_test()
+    Sys.islinux() || error("the desktop acceptance run requires Linux, X11 and Wayland")
+    with_consumer() do cmd,root
+        Pkg.add(["HarfBuzz_jll","Skia","Xorg_libX11_jll"])
+        test = joinpath(root,"test","gdk_window.jl")
+        for host in ("x11","wayland")
+            run(addenv(`$cmd $test`,"GDK_BACKEND"=>host,"VELLUM_TEST_OPENGL"=>"required",
+                       "VELLUM_TEST_VULKAN"=>"required","VELLUM_OPENGL_LIBRARY"=>nothing,"VELLUM_VULKAN_LIBRARY"=>nothing))
+        end
+    end
+end
+
+if ARGS == ["--headless"]
+    headless_test()
+elseif ARGS == ["--desktop"]
+    desktop_test()
+else
+    build_test(ARGS...)
+end

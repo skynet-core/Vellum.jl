@@ -75,6 +75,8 @@ On Linux, `WaylandSHM.Presenter(display, shm, surface; max_size)` presents CPU s
 
 The tutorial rendering report (`reports/tutorials/index.html`) compares each tutorial's Julia drawing on the CPU, native OpenGL, native Vulkan and WebGL2. Run the browser check with `--headed --tutorial-proof --workshops --live-binance` to regenerate the images and exercise the controls. The live chart uses Vellum's `DataDrawing` layer API. Its platform adapters deliver input and market data.
 
+For a Linux application that owns a GDK window, `GdkPresenter(window_pointer; target=:opengl)` or `target=:vulkan` draws directly to that window on Wayland and X11. Submit the same retained `Frame` with `present!`. The presenter handles redraw and resize through the GTK frame clock. [Window ownership and example](docs/wiki/Library-usage.md)
+
 ## License
 
 Vellum's code, documentation and tutorials are licensed under the [Apache License, Version 2.0](LICENSE). The [project notice](NOTICE) identifies the copyright holders. Third-party components carry their own terms. The bundled Liberation Sans font uses the [SIL Open Font License 1.1](test/fixtures/LiberationSans-LICENSE.txt).

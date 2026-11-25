@@ -9,6 +9,13 @@ end
 """System GTK runtime supplying the display's Vulkan integration. Loaded on the first native call."""
 const GTK = "libgtk-4.so.1"
 
+"""GLib error record. The owner releases the message and record together with `g_error_free`."""
+struct GError
+    domain::UInt32
+    code::Cint
+    message::Cstring
+end
+
 """A desktop Vulkan renderer, its latest texture and retained top-level GSK drawing nodes."""
 mutable struct DesktopSurface <: Vellum.Surface
     size::Tuple{Int,Int}
@@ -22,13 +29,13 @@ end
 
 """Require the GTK main thread before creating or accessing desktop Vulkan objects."""
 function main_thread()
-    Threads.threadid() == 1 || throw(ArgumentError("desktop Vulkan surfaces belong to the GTK main thread"))
+    Threads.threadid() == 1 || throw(ArgumentError("GSK surfaces belong to the GTK main thread"))
 end
 
 """Check the lifetime and thread of a desktop Vulkan target."""
 function check_open(s::DesktopSurface)
     main_thread()
-    s.renderer != C_NULL || throw(ArgumentError("Vulkan surface is closed"))
+    s.renderer != C_NULL || throw(ArgumentError("GSK surface is closed"))
 end
 
 """Operations admitted by the Vulkan scene renderer, including captured font outlines."""
@@ -59,18 +66,40 @@ function with_gdk_context(f)
     end
 end
 
-"""Open the Vulkan texture renderer inside the caller's graphics-context guard."""
-function open_desktop_surface(size)
+"""Realize the requested GSK renderer for a borrowed GDK window or offscreen textures."""
+function open_desktop_surface(size,window=C_NULL,target=:vulkan)
     dims = Vellum.checked_dimensions(size...)
-    ccall((:gtk_init_check,GTK),Cint,()) != 0 || throw(ArgumentError("Vulkan requires an accessible desktop display"))
+    ccall((:gtk_init_check,GTK),Cint,()) != 0 || throw(ArgumentError("GSK requires an accessible desktop display"))
     ccall((:gtk_check_version,GTK),Cstring,(Cuint,Cuint,Cuint),4,14,0) == C_NULL ||
-        throw(ArgumentError("Vulkan requires GTK 4.14 or newer"))
-    display = ccall((:gdk_display_get_default,GTK),Ptr{Cvoid},())
-    renderer = ccall((:gsk_vulkan_renderer_new,GTK),Ptr{Cvoid},())
-    renderer != C_NULL || error("GTK could not create its Vulkan renderer")
-    if ccall((:gsk_renderer_realize_for_display,GTK),Cint,(Ptr{Cvoid},Ptr{Cvoid},Ptr{Cvoid}),renderer,display,C_NULL) == 0
+        throw(ArgumentError("GSK requires GTK 4.14 or newer"))
+    renderer = if target === :vulkan
+        ccall((:gsk_vulkan_renderer_new,GTK),Ptr{Cvoid},())
+    elseif target === :opengl
+        ccall((:gsk_gl_renderer_new,GTK),Ptr{Cvoid},())
+    else
+        throw(ArgumentError("unsupported GSK renderer $target"))
+    end
+    renderer != C_NULL || error("GTK could not create its $target renderer")
+    failure = Ref{Ptr{Cvoid}}(C_NULL)
+    realized = if window == C_NULL
+        display = ccall((:gdk_display_get_default,GTK),Ptr{Cvoid},())
+        ccall((:gsk_renderer_realize_for_display,GTK),Cint,(Ptr{Cvoid},Ptr{Cvoid},Ref{Ptr{Cvoid}}),renderer,display,failure)
+    else
+        ccall((:gsk_renderer_realize,GTK),Cint,(Ptr{Cvoid},Ptr{Cvoid},Ref{Ptr{Cvoid}}),renderer,window,failure)
+    end
+    if iszero(realized)
         ccall((:g_object_unref,GTK),Cvoid,(Ptr{Cvoid},),renderer)
-        error("GTK could not realize its Vulkan renderer on this display")
+        # GLib owns the diagnostic until g_error_free.
+        detail = if failure[] != C_NULL
+            try
+                unsafe_string(unsafe_load(Ptr{GError}(failure[])).message)
+            finally
+                ccall((:g_error_free,GTK),Cvoid,(Ptr{Cvoid},),failure[])
+            end
+        else
+            "driver unavailable"
+        end
+        error("GTK could not realize its $target renderer: $detail")
     end
     return DesktopSurface(dims,renderer,C_NULL,Dict(),nothing,0,0)
 end
@@ -199,11 +228,11 @@ function Vellum.execute!(backend::DesktopBackend,s::DesktopSurface,plan::Vellum.
     return with_gdk_context(() -> draw_retained!(s,plan.frame))
 end
 
-"""Build or reuse immutable device nodes and publish the completed texture after successful rendering."""
-function draw_retained!(s,frame)
-    viewport = Vellum.Transform2D(s.size[1]/frame.size[1],0,0,s.size[2]/frame.size[2],0,0)
-    bounds = (0f0,0f0,Float32(s.size[1]),Float32(s.size[2]))
-    reuse = s.frame !== nothing && s.frame.canvas == frame.canvas && s.frame.size == frame.size && s.frame.resources === frame.resources
+"""Submit a retained tree to a window or texture. Rebuild size-dependent nodes after resize."""
+function draw_retained!(s,frame,size=s.size;to_window=false)
+    viewport = Vellum.Transform2D(size[1]/frame.size[1],0,0,size[2]/frame.size[2],0,0)
+    bounds = (0f0,0f0,Float32(size[1]),Float32(size[2]))
+    reuse = s.size == size && s.frame !== nothing && s.frame.canvas == frame.canvas && s.frame.size == frame.size && s.frame.resources === frame.resources
     candidate = empty(s.nodes)
     reused = 0
     try
@@ -226,13 +255,20 @@ function draw_retained!(s,frame)
                          (0f0,0f0,0f0,0f0),bounds)
         end
         texture = try
-            ccall((:gsk_renderer_render_texture,GTK),Ptr{Cvoid},(Ptr{Cvoid},Ptr{Cvoid},Ref{NTuple{4,Cfloat}}),s.renderer,root,bounds)
+            if to_window
+                ccall((:gsk_renderer_render,GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid},Ptr{Cvoid}),s.renderer,root,C_NULL)
+                C_NULL
+            else
+                result = ccall((:gsk_renderer_render_texture,GTK),Ptr{Cvoid},(Ptr{Cvoid},Ptr{Cvoid},Ref{NTuple{4,Cfloat}}),s.renderer,root,bounds)
+                result != C_NULL || error("Vulkan texture rendering failed")
+                result
+            end
         finally
             drop_node(root)
         end
-        texture != C_NULL || error("Vulkan rendering failed")
         s.texture != C_NULL && ccall((:g_object_unref,GTK),Cvoid,(Ptr{Cvoid},),s.texture)
         s.texture,s.nodes,s.frame,candidate = texture,candidate,frame,s.nodes
+        s.size = size
         s.draws += 1
         s.reused = reused
         return s

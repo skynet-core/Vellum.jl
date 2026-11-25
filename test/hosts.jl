@@ -49,6 +49,7 @@ function test_hosts()
     @testset "Retained native revisions" begin
         test_retained_backends()
     end
+    @testset "Caller-owned GDK window" test_gdk_window()
     @testset "First-party desktop OpenGL" begin
         test_desktop_opengl()
     end
@@ -124,6 +125,7 @@ function test_hosts()
 end
 
 include("fixtures/retained_panel.jl")
+include("gdk_window.jl")
 
 """Require actual native renderers and compare retained revision pixels on the same owned surface."""
 function test_retained_backends()

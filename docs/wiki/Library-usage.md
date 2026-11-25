@@ -45,6 +45,19 @@ end
 
 `prepare` checks frame requirements against backend capabilities and retains resources for execution. `render` prepares the frame and executes it into a fresh surface. The caller owns that surface. `readback` makes a detached CPU image, and `rasterize` combines these steps for a one-shot image. Pass a backend object to use your own provider. Implement `capabilities`, `make_surface`, `execute!` and `readback`. A provider with native handles also implements `close` for its surface. For presentation, keep the pixels on the device and pass completed work to the platform presenter according to its ownership and thread requirements.
 
+## Draw into a window your application owns
+
+On Linux, a GTK 4.14+ host can give Vellum exclusive drawing access to a live `GdkSurface*` on Wayland or X11. The host creates the toplevel and dispatches GTK events on its main thread. Pass its pointer when constructing the presenter. Select `:opengl` or `:vulkan` at this one call site.
+
+```julia
+presenter = GdkPresenter(window_pointer; target=:vulkan)
+present!(presenter, frame)
+```
+
+Call `present!` again when your model produces a new frame. Updates before the next display tick coalesce. GDK requests a redraw when the window is shown, exposed or resized. Vellum draws the latest frame directly to the window and reuses unchanged native nodes at the same extent. A hidden window retains its frame for the next redraw.
+
+From an event handler after redraw, inspect `presentation_statistics(presenter)` for the submitted revision, logical window size, native renderer name and number of reused nodes. Close the presenter before the host destroys its surface. You can attach a new presenter to the same live window. The display device and compositor handle scanout. [GDK surface](https://docs.gtk.org/gdk4/class.Surface.html) · [GSK window rendering](https://docs.gtk.org/gsk4/method.Renderer.render.html)
+
 ## Register a format
 
 With `libwebp_jll` added to the active project, WebP supports still and animated input. For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.

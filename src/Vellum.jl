@@ -574,6 +574,8 @@ include("glfw/GLFWHost.jl")
 export GLHost
 include("opengl/VulkanBackend.jl")
 export VulkanBackend
+include("gdk_presenter.jl")
+export GdkPresenter, presentation_statistics
 include("scene3d/Scene3D.jl")
 export Scene3D
 include("wayland/WaylandSHM.jl")
