@@ -47,6 +47,7 @@ Run `using Pkg; Pkg.test()` with the repository project active. The generated re
 | CPU stacks for VS Code (`profiles/cpu.cpuprofile`) | Open the file directly in VS Code to inspect the sampled stacks. |
 | GPU timings (`profiles/gpu.html`) | CUDA event measurements for pixel blends, color helpers and geometry methods, checked against CPU results. Expand the method inventory to see which methods still lack a device measurement. |
 | OpenGL frame profile (`profiles/opengl.html`) | Host submission, GPU timestamps and readback for a warmed frame, with a downloadable Perfetto timeline. |
+| Browser frame profiles (`profiles/canvas.html`, `profiles/webgl2.html`, `profiles/webgpu.html`) | Submission and pixel readback for 51 Wasm replays on each backend, with device timing on WebGL2 and WebGPU. |
 | Cairo and Skia glyph comparisons (`reports/fonts.html`) | Actual-size and enlarged masks for the same positioned glyphs, with per-renderer alpha differences. |
 
 Regenerate the coverage report with `julia --project=tools/coverage tools/coverage.jl reports/coverage.tsv`. It measures a fresh source copy and writes the HTML before enforcing the 95% minimum. To regenerate the CPU reports, run the following in the repository project.

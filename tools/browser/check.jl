@@ -287,6 +287,7 @@ end
 
 include("tutorials.jl")
 include("smoothing.jl")
+include("profile.jl")
 
 @testset "Browser gallery selection and rendered pixels" begin
     browser = get(ENV,"VELLUM_BROWSER","google-chrome")
@@ -321,7 +322,7 @@ include("smoothing.jl")
         profile = joinpath(dir,"chrome")
         # Chrome chooses an unused loopback port and publishes it in this private profile.
         chrome_mode = "--headed" in ARGS ? String[] : ["--headless"]
-        flags = filter(arg -> !(arg in ("--headed","--reports","--workshops","--live-binance","--tutorial-proof","--smoothing")),ARGS)
+        flags = filter(arg -> !(arg in ("--headed","--reports","--workshops","--live-binance","--tutorial-proof","--smoothing","--browser-profile")),ARGS)
         # Compare screenshots in the same sRGB space as the reference pixels.
         chrome = run(pipeline(`$browser $chrome_mode --no-first-run --no-default-browser-check --disable-background-networking --force-color-profile=srgb --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --user-data-dir=$profile --window-size=900,800 --enable-unsafe-webgpu $flags about:blank`;stderr=stderr);wait=false)
         try
@@ -394,6 +395,11 @@ include("smoothing.jl")
                 @test startswith(renderer[1],"WebGL 2")
                 println("Retained browser revisions: ",join(renderer," / "))
                 check_data_devices(ws,dir)
+                if "--browser-profile" in ARGS
+                    for target in (:canvas,:webgl2,:webgpu)
+                        @testset "$target frame profile" profile_browser(ws,dir,target)
+                    end
+                end
                 "--reports" in ARGS && check_reports(ws)
                 "--workshops" in ARGS && check_workshops(ws,dir)
                 protocol(ws,"Network.setBlockedURLs",(urls=String[],))
