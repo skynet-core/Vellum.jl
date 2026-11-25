@@ -33,6 +33,17 @@ To compare font rasterization, instantiate the `tools/text` project and run `jul
 
 ## Tutorial acceptance
 
+To check the published Julia scripts, Markdown and IJulia notebooks, install Jupyter's `nbclient` runtime (CI uses version 0.11.0). Run these commands from the checkout root. Set `JUPYTER_EXECUTE` to the path of `jupyter-execute` if you installed it in a separate environment.
+
+```sh
+julia --startup-file=no --project=docs -e 'using Pkg; Pkg.instantiate()'
+julia --startup-file=no --project=docs docs/check_notebooks.jl
+```
+
+The check regenerates the Markdown and notebook cells in a temporary directory. It runs each published script in a clean drawing project and each notebook in a fresh Julia kernel, then compares the saved files and the inline display byte for byte. The route lesson produces a PNG. The other seven produce standalone HTML and Wasm. A ninth kernel moves the route and checks the pixels at both station positions and in the unchanged park. The check creates a temporary kernel specification and removes it on exit.
+
+To check the playground copies, instantiate the checkout and `public/playground` projects, then run `julia --project=. public/playground/build_lessons.jl --check`. It runs the editor source for every lesson on Canvas 2D, WebGL2 and WebGPU and compares all 24 exports with the published files.
+
 The Linux x86-64 CI job opens a fresh Chromium profile and blocks remote requests before loading the export. It inspects the compiled WebAssembly module's imports and checks that the page embeds its scripts. For both a retained scene and a changing data model, it observes a Wasm caller on the stack of the Canvas fill, WebGL2 instanced draw and WebGPU render-pass draw, then reads the displayed pixels. The separate live Binance check enables network access for market data.
 
 Every tutorial must have one Julia drawing definition. A host adapter can deliver data and input. Vellum owns the drawing, Wasm compilation and graphics presentation. A tutorial is accepted after its scene has rendered through CPU, desktop OpenGL, native Vulkan and browser WebGL2. Retained-scene checks edit and remove a node, check the surviving pixels and revisit a previously displayed revision. Fix renderer defects in the library and add a regression there. The surface plot uses Vellum's CPU depth renderer for its mesh and the selected backend for the composed frame.

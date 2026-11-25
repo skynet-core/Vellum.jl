@@ -2,6 +2,7 @@ import Documenter
 pushfirst!(LOAD_PATH, dirname(@__DIR__))
 using Vellum
 include("tutorials.jl")
+generate_tutorial(dirname(@__DIR__))
 
 """Modules whose authored API is included in the generated reference."""
 const reference_modules = Module[Vellum]

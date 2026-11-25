@@ -36,6 +36,18 @@ jobs:
         run: |
           julia --startup-file=no --project=tools/browser -e 'using Pkg; Pkg.instantiate()'
           JULIA_LOAD_PATH="@:$GITHUB_WORKSPACE/tools/browser:@stdlib" julia --startup-file=no --project=. tools/browser/check.jl --enable-unsafe-swiftshader --use-angle=swiftshader --enable-features=Vulkan --use-vulkan=swiftshader
+      - name: Compare tutorial scripts, published guides and fresh IJulia notebooks
+        if: matrix.os == 'Linux' && matrix.arch == 'x86_64'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/vellum-jupyter"
+          "$RUNNER_TEMP/vellum-jupyter/bin/pip" install 'nbclient==0.11.0'
+          julia --startup-file=no --project=docs -e 'using Pkg; Pkg.instantiate()'
+          JUPYTER_EXECUTE="$RUNNER_TEMP/vellum-jupyter/bin/jupyter-execute" julia --startup-file=no --project=docs docs/check_notebooks.jl
+      - name: Compare all committed playground previews with the Julia lessons
+        if: matrix.os == 'Linux' && matrix.arch == 'x86_64'
+        run: |
+          julia --startup-file=no --project=public/playground -e 'using Pkg; Pkg.instantiate()'
+          julia --startup-file=no --project=. public/playground/build_lessons.jl --check
       - name: Build and test inside FreeBSD
         if: matrix.os == 'FreeBSD'
         uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1

@@ -10,6 +10,8 @@ Choose a lesson above the editor. Every runnable tutorial in the checkout has an
 
 The Liquid Glass framework lesson implements its button, switch, slider and event handling in the editor. The live chart preview permits connections to the two official Binance market-data hosts. The Julia worker runs offline for every lesson.
 
+After instantiating the checkout and playground projects, run `julia --project=. public/playground/build_lessons.jl --check` to compare the committed previews with fresh exports from every lesson. An error names the first missing or outdated file. To regenerate the previews, run the same command without `--check`.
+
 ## Deploy the published images
 
 From the repository root on a Linux amd64 or arm64 Docker host, pull the matching service and Julia worker, then start the editor. Include the worker in the pull because the broker launches it on demand with `--pull=never`.

@@ -1,6 +1,7 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 HarfBuzz_jll = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
 Skia = "d59498f3-381e-4841-a765-4609d464ae1b"
 Xorg_libX11_jll = "4f6342f7-b3d2-589e-9d20-edeb45f2b2bc"
@@ -8,6 +9,7 @@ Xorg_libX11_jll = "4f6342f7-b3d2-589e-9d20-edeb45f2b2bc"
 [compat]
 Documenter = "1"
 HarfBuzz_jll = "100.15001"
+JSON = "1"
 Literate = "2"
 Skia = "0.1.5"
 Xorg_libX11_jll = "1"

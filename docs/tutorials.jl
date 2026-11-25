@@ -1,3 +1,4 @@
+import Literate
 include("lessons.jl")
 
 """Generate a Markdown lesson and an editable IJulia notebook for each runnable tutorial."""
@@ -10,5 +11,6 @@ function generate_tutorial(root)
     end
 end
 
-import Literate
-generate_tutorial(dirname(@__DIR__))
+if abspath(PROGRAM_FILE) == @__FILE__
+    generate_tutorial(dirname(@__DIR__))
+end
