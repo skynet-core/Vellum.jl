@@ -47,6 +47,9 @@ end
 """Check graphics device selection, native rendering and window ownership."""
 function test_hosts()
     @testset "Resident desktop images" test_desktop_images()
+    if get(ENV,"VELLUM_TEST_VULKAN_QUEUE","") == "required"
+        @testset "Owned Vulkan queue" check_queue_vectors()
+    end
     @testset "Retained native revisions" begin
         test_retained_backends()
     end
@@ -128,6 +131,7 @@ end
 include("fixtures/retained_panel.jl")
 include("gdk_window.jl")
 include("desktop_images.jl")
+include("vulkan_queue.jl")
 
 """Require actual native renderers and compare retained revision pixels on the same owned surface."""
 function test_retained_backends()

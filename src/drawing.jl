@@ -122,7 +122,7 @@ end
 
 Select a native renderer on the caller's thread. An X11 OpenGL request
 uses the bundled GLX provider when no legacy bridge is configured or found.
-The Vulkan provider uses the Vulkan renderer of GTK 4.14+ on the desktop display.
+A display-backed Vulkan request uses GTK. Headless requests and explicit Vulkan device choices use Vellum's own queue.
 """
 function _drawing_native_backend(target, device; linux=Sys.islinux(), freebsd=Sys.isfreebsd())
     linux || (freebsd && target === :opengl) ||
@@ -135,7 +135,8 @@ function _drawing_native_backend(target, device; linux=Sys.islinux(), freebsd=Sy
         library = Libdl.find_library(["libvellum_$target","libvetra_$target"],[directory])
         if isempty(library)
             target === :opengl && return OpenGLBackend.DesktopBackend(;device)
-            return VulkanBackend.DesktopBackend(;device)
+            has_display = any(key -> !isempty(get(ENV,key,"")),("DISPLAY","WAYLAND_DISPLAY","WAYLAND_SOCKET"))
+            return device === :auto && has_display ? VulkanBackend.DesktopBackend() : VulkanBackend.QueueBackend(;device)
         end
         path = Libdl.dlpath(library)
     end
@@ -155,7 +156,8 @@ creates and closes a temporary CPU renderer. Supply a `device` only for
 `target=:opengl` or `:vulkan`. The first-party offscreen OpenGL provider
 uses the X11 display's OpenGL device. Symbolic device selectors check its
 vendor and exact PCI matches require a driver with GLX_MESA_query_renderer.
-The desktop Vulkan provider uses Vulkan-enabled GTK 4.14+ and selects its display device with `device=:auto`.
+On Linux with a display, Vulkan defaults to GTK 4.14+. Without a display, or with an explicit vendor or ID pair,
+Vellum uses its owned Vulkan compute queue. Install VulkanCore and Shaderc_jll for this compact profile.
 For the legacy native bridge adapters, `device=:auto`
 requires exactly one visible PCI DRM render node. `:amd`, `:intel`, and
 `:nvidia` require exactly one matching node; `(vendor, product)` selects

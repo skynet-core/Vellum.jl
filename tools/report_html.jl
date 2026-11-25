@@ -78,7 +78,12 @@ function gpu_html(tsv)
         end
         entries = [split(line,'\t') for line in rows[4:end]]
         peak = maximum((parse(Float64,r[3]) for r in entries if !isempty(r[3]));init=1.0)
-        println(io,"<p>Each row measures one device workload. Other package methods have no device measurement in this run.</p>")
+        println(io,"<p>Each row measures one CUDA device workload.</p>")
+        vk_methods = joinpath(dirname(tsv),"vulkan-methods.tsv")
+        if isfile(vk_methods)
+            println(io,"<p><a href='vulkan-methods.html'>Vulkan device method timings</a> · ",
+                    "<a href='vulkan.html'>Vulkan frame profile</a></p>")
+        end
         println(io,"<table><tr><th>Function or blend mode</th><th>Inputs</th><th>Median device time (µs)</th><th>p95 (µs)</th><th>Definition</th><th>Status</th></tr>")
         for row in entries
             name,n,median,status = row
@@ -92,6 +97,12 @@ function gpu_html(tsv)
         cpu = joinpath(dirname(tsv),"cpu.tsv")
         if isfile(cpu)
             measured = Set((r[5],r[6],r[7]) for r in entries if !isempty(r[3]))
+            if isfile(vk_methods)
+                for line in Iterators.drop(readlines(vk_methods),1)
+                    r = split(line,'\t')
+                    endswith(rows[1],r[10]) && push!(measured,(r[2],r[3],r[4]))
+                end
+            end
             missing = [r for r in (split(line,'\t') for line in Iterators.drop(readlines(cpu),1))
                        if (r[1],r[2],r[3]) ∉ measured]
             println(io,"<details><summary>",length(missing)," package methods without a device measurement</summary>",

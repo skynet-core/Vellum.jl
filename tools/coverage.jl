@@ -35,7 +35,7 @@ mktempdir() do scratch
         end
     else
         withenv("WAYLAND_DISPLAY"=>nothing,"VELLUM_TEST_WAYLAND"=>nothing,
-                "VELLUM_TEST_VULKAN"=>nothing,"VELLUM_TEST_OPENGL"=>nothing,"VELLUM_TEST_GLFW"=>nothing) do
+                "VELLUM_TEST_VULKAN"=>nothing,"VELLUM_TEST_VULKAN_QUEUE"=>nothing,"VELLUM_TEST_OPENGL"=>nothing,"VELLUM_TEST_GLFW"=>nothing) do
             Pkg.test(; coverage=true)
         end
     end

@@ -9,6 +9,8 @@ const reference_modules = Module[Vellum]
 if Sys.islinux() || Sys.isfreebsd()
     const VellumGLXExt = Vellum.OpenGLBackend.glx_extension()
     push!(reference_modules,VellumGLXExt)
+    const VellumVulkanExt = Vellum.VulkanBackend.queue_extension()
+    push!(reference_modules,VellumVulkanExt)
 end
 
 """

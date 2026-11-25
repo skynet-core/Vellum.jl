@@ -17,6 +17,15 @@ end
 function cpu_profile(workload, dir)
     roots = [joinpath(pkgdir(Vellum),dir,"") for dir in ("src","ext")]
     (Sys.islinux() || Sys.isfreebsd()) && Vellum.OpenGLBackend.glx_extension()
+    # The optional driver contributes package methods even when the sampled workload stays headless.
+    desktop = joinpath(pkgdir(Vellum),"environments","desktop")
+    push!(LOAD_PATH,desktop)
+    queue_loaded = try
+        found = all(name -> Base.find_package(name) !== nothing,("VulkanCore","Shaderc_jll"))
+        found && Vellum.VulkanBackend.queue_extension() !== nothing
+    finally
+        pop!(LOAD_PATH)
+    end
     mkpath(dir)
     period = 0.0005
     Profile.init(n=10^7, delay=period)
@@ -75,6 +84,7 @@ function cpu_profile(workload, dir)
         report_header(io,"Vellum CPU profile")
         println(io,"<p>",html_escape(Sys.CPU_NAME)," · Julia ",VERSION," · ",length(stacks),
                 " samples within Vellum · sampling interval ",1000period," ms</p>",
+                "<p>Optional Vulkan queue extension loaded for the method inventory: ",queue_loaded,".</p>",
                 "<p>The sampler observed ",length(counts)," of ",length(ordered),
                 " inventoried methods in the warm unit test workload. Inclusive counts include callees. Zero means the sampler did not observe this method.</p>",
                 "<p>The stack views retain time sampled inside Vellum. Gaps between package samples are omitted.</p>",

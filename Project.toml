@@ -19,6 +19,8 @@ Wasmtime_jll = "d20e7296-4f3e-515c-90b9-d2595a77bf72"
 XML = "72c71f33-b9b6-44de-8c94-c961784809e2"
 
 [weakdeps]
+Shaderc_jll = "6bef4a77-805f-5404-b838-981e48d6e429"
+VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
 GLFW_jll = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
 HarfBuzz_jll = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 OpenCV_jll = "33b9d88c-85f9-5d73-bd91-4e2b95a9aa0b"
@@ -28,9 +30,12 @@ Xorg_libX11_jll = "4f6342f7-b3d2-589e-9d20-edeb45f2b2bc"
 libwebp_jll = "c5f90fcd-3b7e-5836-afba-fc50a0988cb2"
 
 [extensions]
+VellumVulkanExt = ["VulkanCore", "Shaderc_jll"]
 VellumGLXExt = ["Skia", "Xorg_libX11_jll"]
 
 [compat]
+Shaderc_jll = "2022.1"
+VulkanCore = "2"
 Base64 = "1"
 ColorTypes = "0.12"
 FreeType2_jll = "2.15.0"

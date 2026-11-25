@@ -415,6 +415,8 @@ function append_record!(records,selection,source,op,transform,bounds,size,halo)
     1 <= m.width <= SOURCE_SIDE && 1 <= m.height <= SOURCE_SIDE && ENDIAN_BOM == 0x04030201 ||
         throw(ArgumentError("GPU tiled images require little-endian data and addressable source dimensions"))
     crop = Dense.crop_bounds(op)
+    0 <= crop[1] <= crop[3] < m.width && 0 <= crop[2] <= crop[4] < m.height ||
+        throw(ArgumentError("image source crop exceeds tiled asset bounds"))
     mapping = Dense.source_mapping(op,transform)
     linear = op.state.sampling === :linear
     a,b,c,d,_,_ = mapping.coefficients

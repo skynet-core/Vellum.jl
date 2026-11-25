@@ -29,7 +29,7 @@ end
 
 """Open a WebGL2 export and capture its initial scene or the Places-only Pelican Sound map."""
 function open_edge_scene(ws,path;places=false)
-    protocol(ws,"Page.navigate",(url="file://"*abspath(path),))
+    navigate(ws,"file://"*abspath(path))
     ready = @browser document.querySelector("#webgl2") && document.querySelector("#webgl2").dataset.state === "ready"
     timedwait(()->evaluate(ws,ready)===true,25)==:ok || error("Could not draw $path")
     if places

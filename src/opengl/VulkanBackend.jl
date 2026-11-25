@@ -1,7 +1,8 @@
 """
 Render bounded portable vector, dense image, captured-text and blur frames with Vulkan on Linux.
 Completed images can also be presented to an application-owned Wayland window.
-Importing this module loads no graphics driver. DesktopBackend() uses the display’s Vulkan-enabled GTK runtime. For the extended profiles, pass the Vulkan
+QueueBackend() renders offscreen on an owned compute queue. DesktopBackend() uses the display’s
+Vulkan-enabled GTK runtime. Loading the module defers driver initialization. For the legacy profiles, pass the Vulkan
 bridge library and explicit PCI IDs when constructing a backend.
 """
 module VulkanBackend
@@ -202,5 +203,7 @@ function statistics(surface::Surface)
 end
 
 include("vulkan_desktop.jl")
+include("queue_kernel.jl")
+include("vulkan_queue.jl")
 
 end

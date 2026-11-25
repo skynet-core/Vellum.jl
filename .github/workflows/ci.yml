@@ -31,6 +31,12 @@ jobs:
       - name: Build and test on Linux
         if: matrix.os == 'Linux'
         run: julia --startup-file=no --project=. tools/ci.jl Linux "${{ matrix.arch }}"
+      - name: Check headless Vulkan queue pixels and fences on Mesa
+        if: matrix.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers
+          julia --startup-file=no --project=. tools/ci.jl --vulkan-queue
       - name: Verify Wasm calls and pixels on Canvas 2D, WebGL2 and WebGPU
         if: matrix.os == 'Linux' && matrix.arch == 'x86_64'
         run: |

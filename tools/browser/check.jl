@@ -16,6 +16,16 @@ function protocol(ws, method, params=(;))
     end
 end
 
+"""
+    navigate(ws, url)
+
+Open a page and surface Chromium's navigation error before looking for a renderer in its document.
+"""
+function navigate(ws,url)
+    result = protocol(ws,"Page.navigate",(;url))
+    haskey(result,"errorText") && error("Chromium could not open $url: $(result["errorText"])")
+end
+
 function evaluate(ws, expr)
     response = protocol(ws,"Runtime.evaluate",(expression=expr,returnByValue=true))
     haskey(response,"exceptionDetails") && error(response["exceptionDetails"])
@@ -54,25 +64,33 @@ const trace_device_calls = @browser ()->begin
     end
 end
 
+"""Read status only from renderer outputs already parsed by Chromium."""
+const gallery_state = @browser Array.from(document.querySelectorAll("main > section[data-state] > output"),
+    output -> [output.parentElement.id,output.parentElement.dataset.state,output.parentElement.dataset.scene,output.textContent])
+
 """Compare the visible output of every browser renderer with zero-based reference pixels."""
 function check_scene(ws, label, probes; tolerance=0, ink_regions=())
-    state = @browser Array.from(document.querySelectorAll("section"), panel -> [panel.dataset.state,
-        panel.dataset.scene, panel.querySelector("output").textContent])
+    targets = ["canvas","webgl2","webgpu"]
+    ready(rows) = first.(rows)==targets && all(s -> s[2]=="ready" && s[3]==label,rows)
     last = []
     for i in 1:300
-        last = evaluate(ws,state)
-        any(s->s[1]=="error", last) && error("renderer failed: $last")
-        length(last)==3 && all(s->s[1]=="ready" && s[2]==label,last) && break
+        last = evaluate(ws,gallery_state)
+        any(s->s[2]=="error",last) && error("renderer failed: $last")
+        ready(last) && break
         sleep(0.1)
     end
-    @test length(last)==3 && all(s->s[1]=="ready" && s[2]==label,last)
+    if !ready(last)
+        page = evaluate(ws,@browser [document.location.href,document.title,document.readyState,document.body.innerText.slice(0,400)])
+        error("Scene $label did not become ready. Renderer outputs: $last. Document: $page")
+    end
+    @test first.(last)==targets
     positions = evaluate(ws,@browser Array.from(document.querySelectorAll("canvas"), c -> begin
         @var r = c.getBoundingClientRect()
         return [Math.floor(r.left),Math.floor(r.top),r.width,r.height]
     end))
     sleep(0.1)
     @test length(positions) == 3
-    for (target,(x,y,width,height)) in zip(("canvas","webgl2","webgpu"),positions)
+    for (target,(x,y,width,height)) in zip(targets,positions)
         clip = (;x,y,width,height,scale=1)
         payload = protocol(ws,"Page.captureScreenshot",(;clip,format="png"))
         screenshot = decode_png(base64decode(payload["data"]))
@@ -98,7 +116,7 @@ function check_workshops(ws,dir)
             Core.eval(lesson,:(include(path) = Base.include($lesson,path)))
             Base.include(lesson,joinpath(pkgdir(Vellum),"tutorials",source*".jl"))
         end
-        protocol(ws,"Page.navigate",(url="file://"*joinpath(dir,name*".html"),))
+        navigate(ws,"file://"*joinpath(dir,name*".html"))
         scene = @browser document.querySelector("section") && document.querySelector("section").dataset.scene
         @test timedwait(() -> evaluate(ws,scene)=="1",20) == :ok
         before = protocol(ws,"Page.captureScreenshot",(format="png",))["data"]
@@ -180,7 +198,7 @@ function check_live_market(ws,dir)
     cd(dir) do
         Base.include(lesson,joinpath(pkgdir(Vellum),"tutorials","candlesticks.jl"))
     end
-    protocol(ws,"Page.navigate",(url="file://"*joinpath(dir,"candlesticks.html"),))
+    navigate(ws,"file://"*joinpath(dir,"candlesticks.html"))
     ready = @browser document.querySelector("canvas") && Number(document.querySelector("canvas").dataset.count)===48
     timedwait(()->evaluate(ws,ready)===true,40) == :ok ||
         error("Binance chart unavailable: "*string(evaluate(ws,@browser document.querySelector("main").textContent)))
@@ -215,8 +233,9 @@ function check_reports(ws)
     for (file, heading) in (("reports/coverage.html","Vellum unit test coverage"),
                             ("profiles/cpu.html","Vellum CPU profile"),
                             ("profiles/gpu.html","Vellum GPU profile"),
-                            ("profiles/cpu-methods.html","Vellum CPU method timings"))
-        protocol(ws,"Page.navigate",(url="file://" * joinpath(root,file),))
+                            ("profiles/cpu-methods.html","Vellum CPU method timings"),
+                            ("profiles/vulkan-methods.html","Vulkan device method timings"))
+        navigate(ws,"file://" * joinpath(root,file))
         title = @browser document.title
         @test timedwait(() -> evaluate(ws,title)==heading,10) == :ok
         if startswith(file,"reports/")
@@ -225,13 +244,23 @@ function check_reports(ws)
                 section.querySelector("summary").click()
                 return section.open && section.querySelector(".line").getBoundingClientRect().height > 0
             end)
-        elseif endswith(file,"cpu-methods.html")
+        elseif endswith(file,"-methods.html")
             link = evaluate(ws,"document.querySelector('tr td a').href")
-            protocol(ws,"Page.navigate",(url=link,))
+            navigate(ws,link)
             @test timedwait(()->evaluate(ws,"!!document.querySelector(':target') && document.querySelector(':target').getBoundingClientRect().height > 0"),10)===:ok
         else
             @test evaluate(ws,@browser document.querySelectorAll("tr meter").length) > 0
         end
+    end
+    for api in ("OpenGL","Vulkan")
+        slug = lowercase(api)
+        dir = joinpath(root,"profiles")
+        navigate(ws,"file://"*joinpath(dir,slug*".html"))
+        @test timedwait(()->evaluate(ws,@browser document.title)==api*" frame profile",10)===:ok
+        @test evaluate(ws,@browser document.querySelectorAll("table tr").length) == 4
+        timeline = JSON.parsefile(joinpath(dir,slug*".trace.json"))
+        samples = filter(e -> e["name"]==api*" draw",timeline["traceEvents"])
+        @test length(samples)==30 && all(e -> e["dur"]>0,samples)
     end
     profile = JSON.parsefile(joinpath(root,"profiles","cpu.cpuprofile"))
     ids = Set(n["id"] for n in profile["nodes"])
@@ -243,6 +272,11 @@ function check_reports(ws)
     gpu = split.(readlines(joinpath(paths,"gpu.tsv"))[4:end],'\t')
     methods = Set(Tuple(row[1:3]) for row in cpu)
     @test all(row -> !startswith(row[6],"src/") || Tuple(row[5:7]) in methods,gpu)
+    vk = split.(readlines(joinpath(paths,"vulkan-methods.tsv"))[2:end],'\t')
+    @test length(unique(first.(vk))) == length(vk) == 13
+    @test all(row -> row[2] == string(only(Base.methods(getproperty(Vellum.VulkanBackend.QueueKernel,Symbol(row[1])))).sig),vk)
+    @test all(row -> Tuple(row[2:4]) in methods && parse(Int,row[5])==8192 && parse(Int,row[6])==51 &&
+              0 < parse(Float64,row[7]) <= parse(Float64,row[8]),vk)
     direct = split.(readlines(joinpath(paths,"cpu-methods.tsv"))[2:end],'\t')
     @test all(row -> Tuple(row[2:4]) in methods && parse(Int,row[6])==51 &&
               0 < parse(Float64,row[7]) <= parse(Float64,row[8]) &&
@@ -267,7 +301,7 @@ function check_data_devices(ws,dir)
     for target in (:canvas,:webgl2,:webgpu)
         @info "Checking live Wasm draws" target
         path = savehtml(joinpath(dir,"live-$target.html"),view;target,driver,config=model)
-        protocol(ws,"Page.navigate",(url="file://"*path,))
+        navigate(ws,"file://"*path)
         ready = "location.pathname.endsWith('/live-$target.html') && document.querySelector('main')?.dataset.state==='ready'"
         timedwait(()->evaluate(ws,ready),15)===:ok || error("Live $target failed to initialize")
         check_wasm_boundary(ws,["count","value","rect","label"])
@@ -336,7 +370,10 @@ include("profile.jl")
                 protocol(ws, "Emulation.setDeviceMetricsOverride",(width=900,height=800,deviceScaleFactor=1,mobile=false))
                 protocol(ws,"Network.enable")
                 protocol(ws,"Network.setBlockedURLs",(urls=["http://*","https://*","ws://*","wss://*"],))
-                protocol(ws,"Page.navigate",(url="file://"*page,))
+                # Poll the same partially parsed DOM that a slow page navigation can expose.
+                evaluate(ws,@browser document.body.innerHTML = "<main><section id=canvas data-state=loading></section></main>")
+                @test isempty(evaluate(ws,gallery_state))
+                navigate(ws,"file://"*page)
                 check_scene(ws,"red",[(4,4,rgbx(255,0,0,255))])
                 check_wasm_boundary(ws,["draw"])
                 @test evaluate(ws,"typeof window.PIXI === 'undefined'")

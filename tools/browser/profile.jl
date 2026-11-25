@@ -156,7 +156,7 @@ function profile_browser(ws,dir,target)
         hook = protocol(ws,"Page.addScriptToEvaluateOnNewDocument",(source=enable_webgpu_timing*"()",))
     end
     try
-        protocol(ws,"Page.navigate",(url="file://"*path,))
+        navigate(ws,"file://"*path)
         ready = timedwait(()->evaluate(ws,"location.pathname.endsWith('/profile-$target.html') && !!window.vellumTiming"),15)
         ready===:ok || error("$title profiler could not open: "*string(evaluate(ws,"document.querySelector('output')?.textContent")))
     finally
@@ -227,7 +227,7 @@ function profile_browser(ws,dir,target)
         end
         println(io,"</table><p><a href='$target.tsv'>All 51 samples</a></p></html>")
     end
-    protocol(ws,"Page.navigate",(url="file://"*joinpath(output,"$target.html"),))
+    navigate(ws,"file://"*joinpath(output,"$target.html"))
     plots = target===:canvas ? 2 : 3
     @test timedwait(()->evaluate(ws,@browser document.querySelectorAll("table svg polyline").length)==plots,10)===:ok
     @info "Measured $title Wasm replays" renderer=device[1] frames=length(rows) output

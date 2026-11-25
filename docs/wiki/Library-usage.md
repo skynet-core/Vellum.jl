@@ -101,6 +101,30 @@ end
 
 On the GLX OpenGL backend, `token = submit!(backend, surface, frame)` queues one candidate and returns a GPU fence token. Readback still returns the previous completed frame. Call `completed(token)` to poll, `wait(token)` to wait up to one second, or `cancel!(token)` to discard the candidate. Keep these operations on the surface's creating thread. The GSK Vulkan provider currently supports synchronous offscreen execution. Pass the same registry to `GdkPresenter(window_pointer; target=:vulkan, raster_registry=registry)` for event-driven window drawing.
 
+### Submit to an owned Vulkan queue
+
+Use `Vellum.VulkanBackend.QueueBackend()` with the same frame to render offscreen without a window. Its compact profile supports fills, strokes, captured text, clips, clears, gradients, isolated groups and dense or tiled image sampling. It admits 32 draw/group records, two group levels, 256 × 256 dense sources, and output up to 1920 × 1080. The display-backed GSK renderer serves the larger workshop scenes.
+
+```julia
+using Vellum
+frame = drawing(size=(64, 48)) do edit
+    rectangle!(edit, 8, 8, 32, 16; fill=Solid(0, 1, 0))
+end
+queue = Vellum.VulkanBackend.QueueBackend()
+surface = make_surface(queue, frame.size)
+try
+    token = submit!(queue, surface, frame)
+    wait(token)
+    image = readback(surface)
+    @assert image[12, 12] == rgbx(0, 255, 0, 255)
+    @show Vellum.VulkanBackend.statistics(surface).gpu_ns
+finally
+    close(surface)
+end
+```
+
+One draw can be pending per surface. Readback returns the previous published pixels until `wait` or `completed` observes the new fence. `cancel!` discards the candidate while the GPU finishes safely. Pass `raster_registry=registry` to the backend to reuse immutable pages, including inactive cached pages. A failed source read leaves the completed drawing available.
+
 ## Register a format
 
 With `libwebp_jll` added to the active project, WebP supports still and animated input. For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.

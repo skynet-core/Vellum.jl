@@ -47,6 +47,7 @@ end
 
 """
     desktop_image_workloads(record)
+    queue_kernel_workloads(record)
 
 Time the production crop, placement and page-identity methods over distinct source rectangles.
 Every batch consumes its results. Actual GPU queue and transfer timings use the device profiler.
@@ -84,6 +85,43 @@ function desktop_image_workloads(record)
     record("page cache partition",pages.page_partition,keys)
 end
 
+"""Time individual Julia functions used by the production Vulkan compute kernel with a real draw packet."""
+function queue_kernel_workloads(record)
+    kernel = Vellum.VulkanBackend.QueueKernel
+    image = Image(8,8)
+    for i in 1:length(image)
+        image[i] = rgbx(i,2i,3i,255)
+    end
+    gradient = LinearGradient((0,0),(64,0),(GradientStop(0,Color(0.2,0.5,1)),GradientStop(1,Color(1,0.2,0.4))))
+    frame = drawing(size=(64,32)) do e
+        rectangle!(e,0,0,64,32;fill=gradient)
+        configure!(e;sampling=:linear)
+        draw_image!(e,resource!(e,image),(8,4,48,24))
+    end
+    packed = Vellum.OpenGLBackend.pack_frame(frame,(64,32))
+    data = (;packed.words,texels=reinterpret(UInt32,image.data),base=UInt32[0])
+    t = kernel.packet_tables(data)
+    n = 128
+    inputs,tables = fill(data,n),fill(t,n)
+    pixels = [kernel.PointI(mod(7i,64),mod(3i,32)) for i in 1:n]
+    points = [kernel.PointD(p.x+0.125,p.y+0.375) for p in pixels]
+    colors = repeat(data.texels,2)
+    rgba = kernel.unpack_color.(colors)
+    record("Vulkan packet offset read",kernel.at_offset,fill(packed.words,n),mod.(1:n,length(packed.words)))
+    record("Vulkan fractional texel",kernel.floor_point,points)
+    record("Vulkan decode color",kernel.unpack_color,colors)
+    record("Vulkan encode color",kernel.pack_color,rgba)
+    record("Vulkan packet integer",kernel.intword,inputs,mod.(1:n,10))
+    record("Vulkan packet tables",kernel.packet_tables,inputs)
+    record("Vulkan shape coverage",kernel.inside_shape,inputs,tables,mod.(1:n,2),points)
+    record("Vulkan gradient stop",kernel.stop_color,inputs,fill(t.stop,n))
+    record("Vulkan gradient sample",kernel.paint_color,inputs,tables,fill(10,n),points)
+    record("Vulkan dense texel",kernel.texel_color,inputs,tables,fill(t.raster,n),falses(n),pixels)
+    record("Vulkan filtered image",kernel.image_color,inputs,tables,fill(24,n),falses(n),points)
+    record("Vulkan pixel composition",kernel.composite_pixel,rgba,reverse(rgba),isodd.(1:n))
+    record("Vulkan full pixel",kernel.draw_pixel,inputs,pixels)
+end
+
 """Write CPU workload distributions, definition locations, and all inventory gaps to TSV and HTML."""
 function cpu_method_timings(dir,inventory)
     rows = NamedTuple[]
@@ -98,6 +136,7 @@ function cpu_method_timings(dir,inventory)
     profile_workloads(record,4096)
     codec_workloads(record)
     desktop_image_workloads(record)
+    queue_kernel_workloads(record)
     open(joinpath(dir,"cpu-methods.tsv"),"w") do io
         println(io,join(string.(keys(first(rows))),'\t'))
         foreach(row->println(io,join(values(row),'\t')),rows)

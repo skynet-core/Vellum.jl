@@ -14,7 +14,7 @@ end
 
 """Capture the WebGL2 canvas at logical scale and read the actual GL driver identity."""
 function capture_tutorial(ws,url,ready)
-    protocol(ws,"Page.navigate",(url="file://"*url,))
+    navigate(ws,"file://"*url)
     timedwait(()->evaluate(ws,ready)===true,30)==:ok || error("renderer failed to display $url")
     return capture_webgl(ws)
 end
@@ -206,7 +206,7 @@ function tutorial_proof(ws,dir)
         if name=="liquid_glass"
             label,state,capture = mixer_gestures(ws,app)
             push!(cases,(name*"-"*label,app.frames[state],capture))
-            check_frost(ws,lesson.GlassUI.GlassMaterial,dir)
+            Base.invokelatest(() -> check_frost(ws,lesson.GlassUI.GlassMaterial,dir))
         end
         for (label,expected,web_result) in cases
             print(io,"<h2>",replace(label,"_"=>" "),"</h2>")

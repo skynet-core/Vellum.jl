@@ -69,7 +69,19 @@ function desktop_test()
     end
 end
 
-if ARGS == ["--headless"]
+"""Run the owned Vulkan queue tests in a fresh consumer project without window-system access."""
+function vulkan_queue_test()
+    with_consumer() do cmd,root
+        Pkg.add(["VulkanCore","Shaderc_jll","HarfBuzz_jll"])
+        file = joinpath(root,"test","vulkan_queue.jl")
+        run(addenv(`$cmd $file`,"DISPLAY"=>nothing,"WAYLAND_DISPLAY"=>nothing,"WAYLAND_SOCKET"=>nothing,
+                   "VELLUM_VULKAN_LIBRARY"=>nothing,"VELLUM_TEST_OPENGL"=>nothing,"VELLUM_TEST_VULKAN"=>nothing))
+    end
+end
+
+if ARGS == ["--vulkan-queue"]
+    vulkan_queue_test()
+elseif ARGS == ["--headless"]
     headless_test()
 elseif ARGS == ["--desktop"]
     desktop_test()

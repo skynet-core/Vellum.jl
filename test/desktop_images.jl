@@ -19,7 +19,7 @@ Base.close(s::InterruptedRaster) = close(s.source)
 """Record each source read and inject a recoverable failure on the second page."""
 function Vellum.ImageStorage.borrow_pixels(s::InterruptedRaster,region;kwargs...)
     push!(s.reads,region[1])
-    s.fail && region[1] >= 64 && error("injected tile read failure")
+    s.fail && length(s.reads) == 2 && error("injected tile read failure")
     return Vellum.ImageStorage.borrow_pixels(s.source,region;kwargs...)
 end
 
@@ -104,6 +104,9 @@ function test_desktop_images()
         fixtures = (;first,second,retry,cropped,sparse,reference,changed,faulty)
         if get(ENV,"VELLUM_TEST_VULKAN","") == "required"
             check_vulkan_sources(registry,cpu,fixtures)
+        end
+        if get(ENV,"VELLUM_TEST_VULKAN_QUEUE","") == "required"
+            check_queue_sources(registry,cpu,fixtures)
         end
         if get(ENV,"VELLUM_TEST_OPENGL","") == "required"
             check_gl_sources(backend,cpu,fixtures)
@@ -235,5 +238,8 @@ function check_gl_sources(backend,cpu,fixtures)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
+    if get(ENV,"VELLUM_TEST_VULKAN_QUEUE","") == "required"
+        include("vulkan_queue.jl")
+    end
     @testset "Desktop resident images" test_desktop_images()
 end

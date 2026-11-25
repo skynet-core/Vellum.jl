@@ -27,6 +27,7 @@ The checkout includes a desktop project for the native workshops. From the check
 | --- | --- |
 | Shape text with HarfBuzz | `HarfBuzz_jll` |
 | Decode and encode WebP, including animated input | `libwebp_jll` |
+| Draw offscreen with the owned Vulkan queue | `VulkanCore`, `Shaderc_jll`, and a Vulkan device with `shaderFloat64` |
 | Draw to an offscreen desktop OpenGL surface through GLX | `Skia`, `Xorg_libX11_jll` |
 | Open a GLFW window or use Wayland shared-memory presentation | `GLFW_jll` for GLFW, `Wayland_jll` for shared memory |
 | Process images with OpenCV | `OpenCV_jll`. FreeBSD aarch64 uses OpenCV 4 from ports. |
@@ -37,7 +38,7 @@ Desktop window integration requires an accessible display and the appropriate OS
 
 To build the tutorial and API reference locally, instantiate the `docs` project, then run `julia --project=docs docs/make.jl` from the checkout root. The documentation build uses Literate.jl and Documenter.jl. Open `docs/build/route.html` to read the rendered tutorial.
 
-The Linux desktop Vulkan provider requires GTK 4.14 or newer built with Vulkan support, a usable display and a Vulkan driver. The provider selects the display device with `device=:auto`. It loads GTK on the first Vulkan request. The explicit bridge constructor remains available for the extended native profiles.
+The display-backed Linux Vulkan provider requires GTK 4.14 or newer built with Vulkan support, a usable display and a Vulkan driver. The provider selects the display device with `device=:auto`. It loads GTK on the first Vulkan request. The explicit bridge constructor remains available for the extended native profiles.
 
 ## GitHub Actions
 

@@ -3,10 +3,12 @@ using Test, Pkg, Vellum
 # tools/ci.jl launches this as an ordinary consumer with only Vellum added.
 @testset "Headless consumer installation" begin
     dependencies = Set(p.name for p in values(Pkg.dependencies()))
-    desktop = Set(("GLFW_jll","OpenCV_jll","Wayland_jll","Skia","Skia_jll","Libglvnd_jll","Qt6Base_jll","Vulkan_Loader_jll"))
+    desktop = Set(("GLFW_jll","OpenCV_jll","Wayland_jll","Skia","Skia_jll","Libglvnd_jll","Qt6Base_jll","Vulkan_Loader_jll","VulkanCore","Shaderc_jll"))
     @test isempty(intersect(dependencies,desktop))
     @test !any(name->startswith(name,"Xorg_"),dependencies)
     @test isnothing(Base.get_extension(Vellum,:VellumGLXExt))
+    @test isnothing(Base.get_extension(Vellum,:VellumVulkanExt))
+    @test_throws "VulkanCore" Vellum.VulkanBackend.queue_extension()
     @test_throws "HarfBuzz_jll" Vellum._requireHarfBuzz()
     @test_throws "GLFW_jll" Vellum.GLHost.library_path()
     if Sys.islinux()

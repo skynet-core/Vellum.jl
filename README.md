@@ -47,6 +47,7 @@ Run `using Pkg; Pkg.test()` with the repository project active. The generated re
 | CPU stacks for VS Code (`profiles/cpu.cpuprofile`) | Open the file directly in VS Code to inspect the sampled stacks. |
 | GPU timings (`profiles/gpu.html`) | CUDA event measurements for pixel blends, color helpers and geometry methods, checked against CPU results. Expand the method inventory to see which methods still lack a device measurement. |
 | OpenGL frame profile (`profiles/opengl.html`) | Host submission, GPU timestamps and readback for a warmed frame, with a downloadable Perfetto timeline. |
+| Vulkan queue profile (`profiles/vulkan.html`) | Host submission, checked device timestamps and mapped readback for an offscreen production draw, with a Perfetto timeline. The companion `profiles/vulkan-methods.html` measures 13 Julia device functions. |
 | Browser frame profiles (`profiles/canvas.html`, `profiles/webgl2.html`, `profiles/webgpu.html`) | Submission and pixel readback for 51 Wasm replays on each backend, with device timing on WebGL2 and WebGPU. |
 | Cairo and Skia glyph comparisons (`reports/fonts.html`) | Actual-size and enlarged masks for the same positioned glyphs, with per-renderer alpha differences. |
 
@@ -71,7 +72,7 @@ The [browser integration check](tools/browser/check.jl) drives Chromium through 
 
 The default installation supports headless CPU drawing, PNG/JPEG and Wasm export. The desktop project adds shaping, WebP and window providers. Applications can add individual providers and enable OpenCV separately. [Provider installation guide](docs/wiki/Building.md)
 
-On Linux, `WaylandSHM.Presenter(display, shm, surface; max_size)` presents CPU surfaces through Wayland shared memory. On an X11 display, `rasterize(frame; target=:opengl)` can render solid paths, strokes, clips and isolated groups through a first-party GLX/Skia backend. It owns its offscreen context and reads back premultiplied RGBA pixels. On a Linux desktop with Vulkan-enabled GTK 4.14+, `target=:vulkan` selects the native GSK Vulkan renderer. The extended bridge APIs remain available. The chart accepts a host and a renderer independently.
+On Linux, `WaylandSHM.Presenter(display, shm, surface; max_size)` presents CPU surfaces through Wayland shared memory. On an X11 display, `rasterize(frame; target=:opengl)` can render solid paths, strokes, clips and isolated groups through a first-party GLX/Skia backend. It owns its offscreen context and reads back premultiplied RGBA pixels. On a Linux desktop with Vulkan-enabled GTK 4.14+, `target=:vulkan` selects the native GSK Vulkan renderer. A headless `target=:vulkan` request, or an explicit Vulkan device selection, runs Vellum’s Julia draw kernel on its own Vulkan queue. The desktop project includes VulkanCore and Shaderc_jll. See the wiki for the compact profile limits and asynchronous submission API. The extended bridge APIs remain available. The chart accepts a host and a renderer independently.
 
 The tutorial rendering report (`reports/tutorials/index.html`) compares each tutorial's Julia drawing on the CPU, native OpenGL, native Vulkan and WebGL2. Run the browser check with `--headed --tutorial-proof --workshops --live-binance` to regenerate the images and exercise the controls. The live chart uses Vellum's `DataDrawing` layer API. Its platform adapters deliver input and market data.
 

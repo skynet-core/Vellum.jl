@@ -1,4 +1,6 @@
 [deps]
+Shaderc_jll = "6bef4a77-805f-5404-b838-981e48d6e429"
+VulkanCore = "16167f82-ea26-5cba-b1de-ed6fd5e30a11"
 GLFW_jll = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
 HarfBuzz_jll = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
@@ -12,5 +14,7 @@ libwebp_jll = "c5f90fcd-3b7e-5836-afba-fc50a0988cb2"
 Vellum = {path = "../.."}
 
 [compat]
+Shaderc_jll = "2022.1"
+VulkanCore = "2"
 JSON = "0.21.4"
 julia = "1.10"

@@ -146,11 +146,14 @@ function append_record!(records, frame, slots::Slots, op::Vellum.ImageRegion, tr
     asset = Vellum.resource(frame, op.image)
     slot = findfirst(item -> item === asset, slots)
     slot === nothing && throw(ArgumentError("image has no selected resident GPU slot"))
+    crop = crop_bounds(op)
+    0 <= crop[1] <= crop[3] < asset.width && 0 <= crop[2] <= crop[4] < asset.height ||
+        throw(ArgumentError("image source crop exceeds dense asset bounds"))
     mapping = source_mapping(op,transform)
     filter = op.state.sampling
     filter in (:nearest, :linear) || throw(ArgumentError("unsupported GPU image filter"))
     index = length(records) ÷ RECORD_WORDS
-    append!(records, (slot-1,asset.width,asset.height,crop_bounds(op)...,Int(filter === :linear),mapping.coefficients...))
+    append!(records, (slot-1,asset.width,asset.height,crop...,Int(filter === :linear),mapping.coefficients...))
     return index
 end
 
