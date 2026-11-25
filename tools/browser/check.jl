@@ -262,6 +262,12 @@ function check_reports(ws)
         samples = filter(e -> e["name"]==api*" draw",timeline["traceEvents"])
         @test length(samples)==30 && all(e -> e["dur"]>0,samples)
     end
+    screenshot_report = joinpath(root,"reports","vulkan-windows","index.html")
+    navigate(ws,"file://"*screenshot_report)
+    @test timedwait(10) do
+        evaluate(ws,@browser document.title==="Wayland compositor pixels" && document.images.length===4 &&
+            Array.from(document.images).every(img -> img.complete && img.naturalWidth===320 && img.naturalHeight===200))
+    end === :ok
     profile = JSON.parsefile(joinpath(root,"profiles","cpu.cpuprofile"))
     ids = Set(n["id"] for n in profile["nodes"])
     @test !isempty(profile["samples"])

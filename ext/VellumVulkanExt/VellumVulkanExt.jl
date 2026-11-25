@@ -11,6 +11,7 @@ using Vellum.VulkanBackend.QueueKernel: KERNEL_FUNCTIONS
 include("shader.jl")
 
 @static if VulkanCore.HAS_LOADER
+include("window.jl")
 include("device.jl")
 include("submission.jl")
 else
@@ -19,7 +20,7 @@ else
 
 Explain the missing Vulkan loader when the first queue target is requested.
 """
-open_target(device,size) = throw(ArgumentError("VulkanCore needs a Vulkan loader for this platform"))
+open_target(device,size;window=nothing) = throw(ArgumentError("VulkanCore needs a Vulkan loader for this platform"))
 end
 
 end

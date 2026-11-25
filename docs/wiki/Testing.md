@@ -61,3 +61,25 @@ Pass `--smoothing` to measure WebGL2 coverage of an oblique edge at 1× and 2× 
 On a Linux desktop with both display protocols available, run `julia --project=environments/desktop tools/check_glass_windows.jl` to present the glass tutorial in Wayland and X11 windows using desktop OpenGL and Vulkan. The check reads the presented frame at the window's framebuffer dimensions.
 
 The shadow check measures RGB darkening beneath the glass toolbar over sand and over water at four distances, using an unobstructed map for comparison. Set `VELLUM_SHADOW_BASELINE` to an older glass-controls WebGL2 export to generate matching before-and-after crops in `reports/shadow/index.html`. Use `VELLUM_GLASS_COMPARISON` to pin the second map for a line-smoothing comparison when the tutorial design has since changed.
+
+## Verify native swapchain output
+
+From the checkout root on a Linux desktop, run
+`julia --project=. tools/ci.jl --vulkan-window x11` or replace `x11` with
+`wayland`. The fresh consumer presents directly through Vellum's Vulkan queue.
+The checks cover duplicate attachment, physical scale, fitting, resize during a
+pending draw, suspension, reopening and the host's ownership after close. X11
+reads the actual window pixels. Wayland checks compositor frame callbacks.
+
+For independent Wayland pixels on Linux, install Xvfb, Weston with its X11
+backend and kiosk shell, GTK 4.14+ and a Vulkan implementation. Run
+`julia --project=. tools/ci.jl --virtual-vulkan-windows`. The Julia runner
+starts a private authenticated X server and a nested Wayland compositor.
+It reads Weston's final output and compares two complete images, including
+the black bars, with the CPU reference. It also verifies that cancelling
+a pending edit preserves the displayed frame.
+
+Open `reports/vulkan-windows/index.html` for the full-size compositor captures
+beside the CPU references. The TSV records maximum per-channel error and the
+GPU transfer interval. The Linux build jobs publish the same directory as the
+`vulkan-window-pixels-x86_64` and `vulkan-window-pixels-aarch64` artifacts.

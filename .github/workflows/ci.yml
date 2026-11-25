@@ -35,8 +35,19 @@ jobs:
         if: matrix.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y mesa-vulkan-drivers
+          sudo apt-get install -y mesa-vulkan-drivers xvfb weston libgtk-4-1
           julia --startup-file=no --project=. tools/ci.jl --vulkan-queue
+      - name: Compare raw Vulkan pixels on X11 and an isolated Wayland compositor
+        id: window_pixels
+        if: matrix.os == 'Linux'
+        run: julia --startup-file=no --project=. tools/ci.jl --virtual-vulkan-windows
+      - name: Publish the independent compositor captures and measurements
+        if: "!cancelled() && (steps.window_pixels.outcome == 'success' || steps.window_pixels.outcome == 'failure')"
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vulkan-window-pixels-${{ matrix.arch }}
+          path: reports/vulkan-windows/
+          if-no-files-found: error
       - name: Verify Wasm calls and pixels on Canvas 2D, WebGL2 and WebGPU
         if: matrix.os == 'Linux' && matrix.arch == 'x86_64'
         run: |

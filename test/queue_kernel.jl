@@ -59,3 +59,26 @@ function queue_paints_frame()
         clear_region!(e,(10,8,8,8))
     end
 end
+
+"""
+    test_queue_window_geometry()
+
+Check the packed-to-window aspect fit, native handles and legal Wayland scale
+values before any Vulkan loader or display is opened.
+"""
+function test_queue_window_geometry()
+    vk = Vellum.VulkanBackend
+    @test vk.fitted_rect((320,200),(640,480)) == (x=0,y=40,width=640,height=400)
+    @test vk.fitted_rect((200,320),(480,640)) == (x=40,y=0,width=400,height=640)
+    @test vk.fitted_rect((1,1000),(3,2)) == (x=1,y=0,width=1,height=2)
+    @test vk.fitted_rect((1000,1),(2,3)) == (x=0,y=1,width=2,height=1)
+    @test vk.window_buffer_scale(nothing,(21,13)) === nothing
+    @test vk.window_buffer_scale(Int32(2),(20,12)) === 2
+    for scale in (0,2.5,-1,true,UInt64(typemax(Cint))+1)
+        @test_throws ArgumentError vk.window_buffer_scale(scale,(20,12))
+    end
+    @test_throws ArgumentError vk.window_buffer_scale(2,(21,12))
+    @test_throws ArgumentError vk.X11Window(C_NULL,2)
+    @test_throws ArgumentError vk.X11Window(Ptr{Cvoid}(1),true)
+    @test vk.X11Window(Ptr{Cvoid}(1),0xff).xid == 255
+end

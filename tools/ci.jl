@@ -79,7 +79,32 @@ function vulkan_queue_test()
     end
 end
 
-if ARGS == ["--vulkan-queue"]
+"""
+    vulkan_window_test(host)
+
+Install the raw Vulkan provider in a fresh project and exercise real GDK and GLFW
+windows on the selected Linux display protocol with legacy bridge overrides unset.
+"""
+function vulkan_window_test(host)
+    Sys.islinux() && host in ("x11","wayland") || error("expected x11 or wayland on Linux")
+    with_consumer() do cmd,root
+        Pkg.add(["VulkanCore","Shaderc_jll","GLFW_jll","Wayland_jll"])
+        window = addenv(cmd,"GDK_BACKEND"=>host,"VELLUM_VULKAN_LIBRARY"=>nothing,"VELLUM_OPENGL_LIBRARY"=>nothing,
+                        "VELLUM_TEST_VULKAN_WINDOW"=>"required","VELLUM_TEST_VULKAN"=>nothing,"VELLUM_TEST_OPENGL"=>nothing)
+        run(`$window $(joinpath(root,"test","gdk_window.jl"))`)
+        run(`$window $(joinpath(root,"test","vulkan_window.jl")) $host`)
+    end
+end
+
+if ARGS == ["--virtual-vulkan-windows"]
+    include("ci_wsi.jl")
+    with_consumer() do cmd,root
+        Pkg.add(["VulkanCore","Shaderc_jll","GLFW_jll","Wayland_jll"])
+        virtual_window_tests(cmd,root)
+    end
+elseif length(ARGS)==2 && first(ARGS)=="--vulkan-window"
+    vulkan_window_test(last(ARGS))
+elseif ARGS == ["--vulkan-queue"]
     vulkan_queue_test()
 elseif ARGS == ["--headless"]
     headless_test()

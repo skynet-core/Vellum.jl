@@ -29,6 +29,7 @@ function run_suite()
         @testset "Vulkan Julia draw kernel" begin
             QueueKernelTests.compare(drawing_contract_frame())
             QueueKernelTests.compare(queue_paints_frame())
+            test_queue_window_geometry()
         end
         test_rendering()
         test_surfaces()

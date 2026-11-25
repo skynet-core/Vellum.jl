@@ -110,7 +110,7 @@ function submit_draw!(t,plan)
         memory_barrier(t.command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT,
             VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT)
         checked(vkEndCommandBuffer(t.command),:vkEndCommandBuffer)
-        candidate = (;index,banks,staged.assets,staged.shapes,bytes)
+        candidate = (;index,banks,staged.assets,staged.shapes,bytes,plan.frame.revision)
         token = Backend.QueueSubmission(t,candidate,:pending)
         cmds = [t.command]
         GC.@preserve cmds begin
@@ -140,13 +140,10 @@ function advance!(token,timeout)
     result = vkWaitForFences(t.device,1,Ref(t.fence),1,timeout)
     result == VK_TIMEOUT && return false
     checked(result,:vkWaitForFences)
-    ticks = if t.queries != C_NULL
-        data = zeros(UInt64,2)
-        checked(vkGetQueryPoolResults(t.device,t.queries,0,2,sizeof(data),data,sizeof(UInt64),VK_QUERY_RESULT_64_BIT),:vkGetQueryPoolResults)
-        Tuple(data)
-    end
+    ticks = query_ticks(t,t.queries)
     c = token.candidate
     t.published,t.banks,t.sources,t.shapes,t.ticks = c.index,c.banks,c.assets,c.shapes,ticks
+    t.revision = c.revision
     t.committed += c.bytes
     t.frames += 1
     t.in_flight = false
@@ -192,13 +189,33 @@ Describe device timings with queue tick wraparound and transfer counts for the l
 """
 function device_statistics(t)
     check_open(t)
-    duration = if t.ticks !== nothing
-        mask = typemax(UInt64) >> (64-Int(t.valid_bits))
-        ((t.ticks[2]-t.ticks[1]) & mask)*t.period_ns
-    end
+    duration = elapsed_ns(t,t.ticks)
     dense = count(!isnothing,t.sources.dense)
     return (;t.renderer,t.pci,t.driver_version,queue_family=t.family,t.frames,pending=t.pending!==nothing,
         uploaded_bytes=t.uploaded,committed_upload_bytes=t.committed,resident_images=dense+length(t.sources.pages),
         cached_pages=length(t.sources.cached),gpu_ns=duration,device_ticks=t.ticks,timestamp_period_ns=t.period_ns,
         timestamp_valid_bits=t.valid_bits)
+end
+
+"""
+    query_ticks(t,pool)
+
+Read the start and end ticks after the corresponding draw or transfer fence has signaled.
+"""
+function query_ticks(t,pool)
+    pool == C_NULL && return nothing
+    data = zeros(UInt64,2)
+    checked(vkGetQueryPoolResults(t.device,pool,0,2,sizeof(data),data,sizeof(UInt64),VK_QUERY_RESULT_64_BIT),:vkGetQueryPoolResults)
+    return Tuple(data)
+end
+
+"""
+    elapsed_ns(t,ticks)
+
+Convert the queue's wrapping timestamp counter into elapsed device nanoseconds.
+"""
+function elapsed_ns(t,ticks)
+    isnothing(ticks) && return nothing
+    mask = typemax(UInt64) >> (64-Int(t.valid_bits))
+    return ((ticks[2]-ticks[1]) & mask)*t.period_ns
 end

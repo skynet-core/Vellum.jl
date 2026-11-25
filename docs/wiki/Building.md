@@ -27,6 +27,7 @@ The checkout includes a desktop project for the native workshops. From the check
 | --- | --- |
 | Shape text with HarfBuzz | `HarfBuzz_jll` |
 | Decode and encode WebP, including animated input | `libwebp_jll` |
+| Present the owned Vulkan queue on Linux | The Vulkan queue packages below, GLFW_jll for a GLFW host or borrowed Xlib/Wayland handles. Wayland_jll supports explicitly managed buffer scaling. |
 | Draw offscreen with the owned Vulkan queue | `VulkanCore`, `Shaderc_jll`, and a Vulkan device with `shaderFloat64` |
 | Draw to an offscreen desktop OpenGL surface through GLX | `Skia`, `Xorg_libX11_jll` |
 | Open a GLFW window or use Wayland shared-memory presentation | `GLFW_jll` for GLFW, `Wayland_jll` for shared memory |

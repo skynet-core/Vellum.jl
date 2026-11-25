@@ -48,6 +48,7 @@ Run `using Pkg; Pkg.test()` with the repository project active. The generated re
 | GPU timings (`profiles/gpu.html`) | CUDA event measurements for pixel blends, color helpers and geometry methods, checked against CPU results. Expand the method inventory to see which methods still lack a device measurement. |
 | OpenGL frame profile (`profiles/opengl.html`) | Host submission, GPU timestamps and readback for a warmed frame, with a downloadable Perfetto timeline. |
 | Vulkan queue profile (`profiles/vulkan.html`) | Host submission, checked device timestamps and mapped readback for an offscreen production draw, with a Perfetto timeline. The companion `profiles/vulkan-methods.html` measures 13 Julia device functions. |
+| Raw Vulkan window captures (`reports/vulkan-windows/index.html`) | Whole Wayland compositor outputs beside CPU references, plus per-frame error and GPU blit time. The Linux matrix publishes these captures for each architecture. |
 | Browser frame profiles (`profiles/canvas.html`, `profiles/webgl2.html`, `profiles/webgpu.html`) | Submission and pixel readback for 51 Wasm replays on each backend, with device timing on WebGL2 and WebGPU. |
 | Cairo and Skia glyph comparisons (`reports/fonts.html`) | Actual-size and enlarged masks for the same positioned glyphs, with per-renderer alpha differences. |
 
@@ -81,3 +82,5 @@ For a Linux application that owns a GDK window, `GdkPresenter(window_pointer; ta
 ## License
 
 Vellum's code, documentation and tutorials are licensed under the [Apache License, Version 2.0](LICENSE). The [project notice](NOTICE) identifies the copyright holders. Third-party components carry their own terms. The bundled Liberation Sans font uses the [SIL Open Font License 1.1](test/fixtures/LiberationSans-LICENSE.txt).
+
+The compact Vulkan queue also presents directly to X11 and Wayland. Pass `target=Vellum.VulkanBackend.QueueBackend()` to `Vellum.GLHost.with_frame_window` and choose `platform=:x11` or `:wayland`. [Runnable window example](docs/wiki/Library-usage.md)

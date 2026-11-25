@@ -125,6 +125,48 @@ end
 
 One draw can be pending per surface. Readback returns the previous published pixels until `wait` or `completed` observes the new fence. `cancel!` discards the candidate while the GPU finishes safely. Pass `raster_registry=registry` to the backend to reuse immutable pages, including inactive cached pages. A failed source read leaves the completed drawing available.
 
+### Present directly on X11 or Wayland
+
+The compact queue can present the same Julia frame to either window system. Install
+the providers in `environments/desktop` and choose the host with `platform`.
+This example keeps the window open until you close it.
+
+```julia
+using Vellum
+frame = drawing(size=(240,120)) do edit
+    rectangle!(edit,0,0,240,120;fill=Solid(0.1,0.2,0.3))
+    rectangle!(edit,20,30,80,40;fill=Solid(0.2,0.8,0.5))
+end
+host = Vellum.GLHost
+queue = Vellum.VulkanBackend.QueueBackend()
+host.with_frame_window(240,120,"Vellum";platform=:wayland,target=queue) do window, draw
+    extent = nothing
+    while !host.should_close(window)
+        host.poll_events(window)
+        current = host.framebuffer_size(window)
+        if minimum(current) > 0 && current != extent
+            draw(frame)
+            extent = current
+        end
+        host.wait_events(window,0.05)
+    end
+end
+```
+
+Use `platform=:x11` for X11. The presenter keeps a device buffer for completed
+frames, copies it to a device image, and blits it into an acquired FIFO swapchain
+image. Passing a `before_swap` callback explicitly requests a CPU image for
+inspection. A host with an existing GLFW window opened with `client_api=:none`
+can call `Vellum.VulkanBackend.window_surface(frame,queue,window)` and
+`present!(surface,host.framebuffer_size(window))` itself.
+
+For other toolkits, wrap the borrowed handles with `Vellum.VulkanBackend.X11Window`
+or `Vellum.VulkanBackend.WaylandWindow`. Close the Vellum surface before destroying
+the window. On Wayland, a toolkit that delegates integer buffer scaling can pass
+`buffer_scale=2` to `present!` for a 2× display. A host with its own fractional
+viewport manages its logical destination. A zero extent suspends presentation.
+Dispatch host events before retrying a busy acquisition or an out-of-date window.
+
 ## Register a format
 
 With `libwebp_jll` added to the active project, WebP supports still and animated input. For animated GIF and WebP files, use `ImageCodecs.eachframe(io)` to get composited images in display order. Each frame carries a duration in seconds and a disposal rule. The sequence exposes the encoded loop count. The decoder enforces frame and decoded-byte limits across the sequence. The still-image decoding API returns the first frame. WebP encodes losslessly by default. Set an integer quality to encode lossy RGB with lossless alpha. WebP currently assumes sRGB and rejects embedded ICC profiles and EXIF orientation metadata.

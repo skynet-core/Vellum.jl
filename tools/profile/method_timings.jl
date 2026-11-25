@@ -107,6 +107,9 @@ function queue_kernel_workloads(record)
     points = [kernel.PointD(p.x+0.125,p.y+0.375) for p in pixels]
     colors = repeat(data.texels,2)
     rgba = kernel.unpack_color.(colors)
+    targets = [(32+2mod(i,100),24+2mod(i,123)) for i in 1:n]
+    record("Vulkan fit to window",Vellum.VulkanBackend.fitted_rect,fill((80,64),n),targets)
+    record("Wayland physical buffer scale",Vellum.VulkanBackend.window_buffer_scale,fill(2,n),targets)
     record("Vulkan packet offset read",kernel.at_offset,fill(packed.words,n),mod.(1:n,length(packed.words)))
     record("Vulkan fractional texel",kernel.floor_point,points)
     record("Vulkan decode color",kernel.unpack_color,colors)

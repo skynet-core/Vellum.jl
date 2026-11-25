@@ -17,14 +17,69 @@ function present_image(window,image,texture,fbo,extent)
 end
 
 """
+    with_queue_window(callback, backend, width, height, title, platform)
+
+Open an unattached GLFW window and present compact Vulkan frames directly. Read
+pixels only for an explicit inspection callback. Rebuild the raster target after
+a physical resize and keep the host's window alive until the callback returns.
+"""
+function with_queue_window(callback,backend,width,height,title,platform)
+    return with_window(width,height,title;platform,client_api=:none,libdecor=platform !== :wayland) do window
+        surface = nothing
+        dimensions = (0,0)
+        function present(frame;before_swap=nothing)
+            first_wait = nothing
+            rendered = false
+            while !should_close(window)
+                extent = framebuffer_size(window)
+                minimum(extent) > 0 || return nothing
+                if isnothing(surface) || dimensions != extent
+                    isnothing(surface) || close(surface)
+                    surface = nothing
+                    surface = Vellum.VulkanBackend.window_surface(frame,backend,window;size=extent)
+                    dimensions = extent
+                    rendered = true
+                elseif !rendered
+                    plan = Vellum.prepare(backend,frame)
+                    try
+                        Vellum.execute!(backend,surface,plan)
+                    finally
+                        close(plan)
+                    end
+                    rendered = true
+                end
+                # Inspect the rendered pixels once, before the first offer.
+                if !isnothing(before_swap)
+                    before_swap(Vellum.readback(surface))
+                    before_swap = nothing
+                end
+                outcome = Vellum.present!(surface,extent)
+                outcome in (:accepted,:unchanged,:suspended) && return nothing
+                first_wait = something(first_wait,time_ns())
+                time_ns()-first_wait > 5_000_000_000 && error("Vulkan window presentation timed out with $outcome")
+                wait_events(window,0.005)
+            end
+            return nothing
+        end
+        try
+            return callback(window,present)
+        finally
+            isnothing(surface) || close(surface)
+        end
+    end
+end
+
+"""
     with_frame_window(callback, width, height, title; platform, target=:cpu)
 
 Open an owned window and pass `callback(window, present)` a frame presenter. Call
 `present(frame)` after model changes. The selected native backend renders at the actual
-framebuffer extent. A readback and OpenGL blit present those pixels on either window system.
+framebuffer extent. A `VulkanBackend.QueueBackend()` target uses a first-party Vulkan
+swapchain on either window system. The symbolic targets use a readback and OpenGL blit.
 `before_swap(image)` optionally inspects the completed pixels while the window is current.
 """
 function with_frame_window(callback,width,height,title;platform,target=:cpu)
+    target isa Vellum.VulkanBackend.QueueBackend && return with_queue_window(callback,target,width,height,title,platform)
     target in (:cpu,:opengl,:vulkan) || throw(ArgumentError("expected a native frame renderer"))
     backend = target===:cpu ? Vellum.CPUBackend.Renderer() : Vellum._drawing_native_backend(target,:auto)
     try
@@ -36,7 +91,7 @@ function with_frame_window(callback,width,height,title;platform,target=:cpu)
             try
                 ccall(proc("glGenTextures"),Cvoid,(Cint,Ref{Cuint}),1,texture)
                 ccall(proc("glGenFramebuffers"),Cvoid,(Cint,Ref{Cuint}),1,fbo)
-                function present(frame;before_swap=identity)
+                function present(frame;before_swap=nothing)
                     extent = framebuffer_size(window)
                     minimum(extent)>0 || return nothing
                     image = without_context(window) do
@@ -54,7 +109,7 @@ function with_frame_window(callback,width,height,title;platform,target=:cpu)
                         end
                     end
                     present_image(window,image,texture[],fbo[],extent)
-                    before_swap(image)
+                    isnothing(before_swap) || before_swap(image)
                     swap_buffers(window)
                     return nothing
                 end

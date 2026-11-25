@@ -143,12 +143,15 @@ function check_window_images(p,registry,display,window,display_type)
     end
 end
 
+include("vulkan_window.jl")
+
 """Exercise the public presenters on one caller-owned GDK toplevel, including resize and reattachment."""
 function test_gdk_window()
     @test_throws ArgumentError GdkPresenter(C_NULL;target=:vulkan)
     @test_throws ArgumentError GdkPresenter(Ptr{Cvoid}(1);target=:cpu)
     targets = [t for t in (:opengl,:vulkan) if get(ENV,"VELLUM_TEST_"*uppercase(String(t)),"") == "required"]
-    Sys.islinux() && !isempty(targets) || return
+    raw = get(ENV,"VELLUM_TEST_VULKAN_WINDOW","") == "required"
+    Sys.islinux() && (raw || !isempty(targets)) || return
     ccall((:gtk_init_check,TEST_GTK),Cint,()) != 0 || error("GDK test requires a desktop display")
     display = ccall((:gdk_display_get_default,TEST_GTK),Ptr{Cvoid},())
     display_type = unsafe_string(ccall((:g_type_name_from_instance,TEST_GTK),Cstring,(Ptr{Cvoid},),display))
@@ -157,23 +160,25 @@ function test_gdk_window()
     window = ccall((:gdk_surface_new_toplevel,TEST_GTK),Ptr{Cvoid},(Ptr{Cvoid},),display)
     window != C_NULL || error("could not create test toplevel")
     layout = ccall((:gdk_toplevel_layout_new,TEST_GTK),Ptr{Cvoid},())
-    frames = retained_panel()
+    frames = isempty(targets) ? () : retained_panel()
     registry = Vellum.ImageTiles.RasterRegistry(namespace=32,source_bytes=65536,max_assets=8,max_revisions=8,max_leases=32)
     dims = Cint[180,100]
     GC.@preserve dims try
         callback = @cfunction(test_toplevel_size,Cvoid,(Ptr{Cvoid},Ptr{Cvoid},Ptr{Cint}))
         ccall((:g_signal_connect_data,TEST_GTK),Culong,(Ptr{Cvoid},Cstring,Ptr{Cvoid},Ptr{Cint},Ptr{Cvoid},Cint),
               window,"compute-size",callback,dims,C_NULL,0)
-        function resize_window(w,h)
+        function resize_window(w,h;offer=nothing)
             dims .= (w,h)
             ccall((:gdk_toplevel_present,TEST_GTK),Cvoid,(Ptr{Cvoid},Ptr{Cvoid}),window,layout)
             ccall((:gdk_surface_request_layout,TEST_GTK),Cvoid,(Ptr{Cvoid},),window)
+            isnothing(offer) || offer()
             @test wait_gdk() do
                 ccall((:gdk_surface_get_mapped,TEST_GTK),Cint,(Ptr{Cvoid},),window) != 0 &&
                 ccall((:gdk_surface_get_width,TEST_GTK),Cint,(Ptr{Cvoid},),window) == w &&
                 ccall((:gdk_surface_get_height,TEST_GTK),Cint,(Ptr{Cvoid},),window) == h
             end
         end
+        raw && check_queue_window(display,window,display_type,resize_window)
         for target in targets
             offscreen = rasterize(frames[2];target)
             @test offscreen[13,11] == rasterize(frames[2])[13,11] == rgbx(0,0,255,255)

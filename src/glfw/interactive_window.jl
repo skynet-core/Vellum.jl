@@ -102,7 +102,7 @@ Open a desktop window for an interactive Vellum drawing. Set `platform` to
 Pointer, keyboard and clock actions use the same transition table as browser Wasm.
 `before_swap(window, state, image)` receives each completed presentation.
 """
-function run_interactive(app;platform=nothing,target=:cpu,reduced_motion=false,before_swap=(w,s,img)->nothing)
+function run_interactive(app;platform=nothing,target=:cpu,reduced_motion=false,before_swap=nothing)
     width,height = Int.(first(app.frames).size)
     with_frame_window(width,height,app.title;platform,target) do window,present
         state = 1
@@ -141,7 +141,7 @@ function run_interactive(app;platform=nothing,target=:cpu,reduced_motion=false,b
                 deadline = delay == 0 ? Inf : now+delay
             end
             if (state,extent) != previous
-                present(app.frames[state];before_swap=image->before_swap(window,state,image))
+                present(app.frames[state];before_swap=isnothing(before_swap) ? nothing : image->before_swap(window,state,image))
                 previous = (state,extent)
             end
             wait_events(window,0.012)

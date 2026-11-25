@@ -144,3 +144,128 @@ statistics(s::QueueSurface) = Base.invokelatest(queue_extension().device_statist
 Drain pending commands and release this surface's buffers, device and instance.
 """
 Base.close(s::QueueSurface) = Base.invokelatest(queue_extension().release!,s.native)
+
+"""
+    VulkanBackend.X11Window(display::Ptr{Cvoid}, xid::Integer)
+
+Borrow a mapped Xlib window and its display connection. The host owns both handles,
+dispatches events and keeps them alive until the Vellum surface closes.
+"""
+struct X11Window
+    display::Ptr{Cvoid}
+    xid::Culong
+    function X11Window(display::Ptr{Cvoid},xid::Integer)
+        display != C_NULL && !(xid isa Bool) && 0 < xid <= typemax(Culong) ||
+            throw(ArgumentError("a live Xlib display and window ID are required"))
+        return new(display,xid)
+    end
+end
+
+"""
+    VulkanBackend.window_surface(frame, backend::QueueBackend, window; size=frame.size)
+
+Draw the initial frame on a graphics/compute queue that can present to the borrowed
+Wayland or X11 window. The host supplies physical framebuffer dimensions to
+`present!` and owns event dispatch. Close the result before destroying the window.
+"""
+function window_surface(frame::Vellum.Frame,b::QueueBackend,window::Union{WaylandWindow,X11Window};size=frame.size)
+    (Sys.islinux() || Sys.isfreebsd()) || throw(ArgumentError("the raw Vulkan window provider requires Wayland or X11"))
+    dims = Vellum.checked_dimensions(size...)
+    all(dims .<= OpenGLBackend.MAX_EXTENT) || throw(ArgumentError("extent exceeds the Vulkan vector profile"))
+    plan = Vellum.prepare(b,frame)
+    try
+        native = Base.invokelatest(queue_extension().open_target,b.device,dims;window)
+        surface = QueueSurface(b,native)
+        try
+            return Vellum.execute!(b,surface,plan)
+        catch
+            close(surface)
+            rethrow()
+        end
+    finally
+        close(plan)
+    end
+end
+
+"""
+    fitted_rect(source,extent)
+
+Fit positive pixel dimensions to a framebuffer. Center letterbox bars and
+retain at least one destination pixel for very thin sources.
+"""
+function fitted_rect(source,extent)
+    sw,sh = source
+    dw,dh = extent
+    if dw*sh <= dh*sw
+        w,h = dw,max(1,round(Int,dw*sh/sw))
+    else
+        w,h = max(1,round(Int,dh*sw/sh)),dh
+    end
+    return (x=(dw-w)÷2,y=(dh-h)÷2,width=w,height=h)
+end
+
+"""
+    window_buffer_scale(scale,extent)
+
+Validate an optional Wayland integer scale. Physical dimensions must divide
+evenly into logical surface units before the host can commit this buffer.
+"""
+function window_buffer_scale(scale,extent)
+    isnothing(scale) && return nothing
+    scale isa Integer && !(scale isa Bool) && 1 <= scale <= typemax(Cint) &&
+        all(d -> iszero(rem(d,scale)),extent) || throw(ArgumentError("expected a positive integral Wayland buffer scale dividing the physical extent"))
+    return Int(scale)
+end
+
+"""
+    present!(surface::QueueSurface, extent::Tuple{Integer,Integer}; buffer_scale=nothing)
+
+Present the completed frame to its borrowed window in physical pixels. The device
+fits the frame inside the window with black bars. On a borrowed Wayland surface, pass an integer
+`buffer_scale` to set its logical-to-physical ratio at commit. Omit it when the host
+manages its own scale or fractional viewport. An explicitly committed scale stays
+on the borrowed surface until the host or a later presentation changes it. A zero extent returns `:suspended`;
+pending draws and unavailable FIFO images return `:busy`. Retry `:resize` after
+dispatching host events. A successful offer returns `:accepted` and repeats return
+`:unchanged`. No pixel data crosses to Julia during presentation.
+"""
+function present!(s::QueueSurface,extent::Tuple{Integer,Integer};buffer_scale=nothing)
+    all(0 .<= extent .<= MAX_WINDOW_EXTENT) || throw(ArgumentError("window framebuffer extent outside profile"))
+    scale = window_buffer_scale(buffer_scale,extent)
+    return Base.invokelatest(queue_extension().present_window!,s.native,Int.(extent),scale)
+end
+
+"""
+    VulkanBackend.window_statistics(surface::QueueSurface)
+
+Return accepted presentations, last offered frame revision, swapchain count and extent,
+format, fitted transfer bytes and host time spent in the last queue-present call.
+`gpu_ns` is the device timestamp duration of the last accepted image copy and blit
+where queue timestamps are available.
+"""
+window_statistics(s::QueueSurface) = Base.invokelatest(queue_extension().window_stats,s.native)
+
+"""
+    VulkanBackend.window_surface(frame, backend::QueueBackend, window::GLHost.Window; size=frame.size)
+
+Attach a Vulkan drawing to a Vellum GLFW window opened with `client_api=:none`.
+Select Wayland or X11 at window creation. Vellum resolves the native handles for
+the selected platform. Use `GLHost.framebuffer_size(window)` for presentation.
+"""
+function window_surface(frame::Vellum.Frame,b::QueueBackend,w::Vellum.GLHost.Window;size=frame.size)
+    glfw = Vellum.GLHost
+    handle = glfw.require_open(w)
+    api = ccall(glfw.symbol(w.library,:glfwGetWindowAttrib),Cint,(Ptr{Cvoid},Cint),handle,glfw.GLFW_CLIENT_API)
+    api == glfw.GLFW_NO_API || throw(ArgumentError("open the Vulkan window with client_api=:none"))
+    platform = glfw.backend(w)
+    native = if platform === :wayland
+        WaylandWindow(ccall(glfw.symbol(w.library,:glfwGetWaylandDisplay),Ptr{Cvoid},()),
+                      ccall(glfw.symbol(w.library,:glfwGetWaylandWindow),Ptr{Cvoid},(Ptr{Cvoid},),handle))
+    elseif platform === :x11
+        X11Window(ccall(glfw.symbol(w.library,:glfwGetX11Display),Ptr{Cvoid},()),
+                  ccall(glfw.symbol(w.library,:glfwGetX11Window),Culong,(Ptr{Cvoid},),handle))
+    else
+        throw(ArgumentError("the Vulkan queue window provider requires GLFW 3.4 on X11 or Wayland"))
+    end
+    return window_surface(frame,b,native;size)
+end

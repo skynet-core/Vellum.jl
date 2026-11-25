@@ -12,6 +12,8 @@ export Window, open_window, close!, with_window, proc_address, framebuffer_size,
 const GLFW_TRUE = Cint(1)
 """GLFW window visibility hint."""
 const GLFW_VISIBLE = Cint(0x00020004)
+"""GLFW window hint for compositor or client-side window decorations."""
+const GLFW_DECORATED = Cint(0x00020005)
 """GLFW context major-version hint."""
 const GLFW_CONTEXT_VERSION_MAJOR = Cint(0x00022002)
 """GLFW context minor-version hint."""
@@ -73,11 +75,12 @@ end
 glfw_version(w::Window) = glfw_version(w.library)
 
 """
-    open_window(width, height, title; visible=true, platform=nothing, client_api=:opengl, libdecor=true, context_version=(3, 3))
+    open_window(width, height, title; visible=true, decorated=true, platform=nothing, client_api=:opengl, libdecor=true, context_version=(3, 3))
 
 Create a GLFW window. `client_api=:opengl` makes a core context of at least
 `context_version` current on the calling thread. `:none` leaves it unattached.
 `platform` may be `:wayland` or `:x11` on Linux with GLFW 3.4 or newer.
+Use `decorated=false` for an app-drawn border or a kiosk surface.
 For an explicit Wayland platform, `libdecor=false` selects GLFW's built-in
 decoration fallback instead of a libdecor plugin.
 The caller owns the window and must call `close!` on the same thread. This
@@ -85,7 +88,7 @@ adapter owns GLFW initialization globally; do not use it concurrently
 with another GLFW owner.
 """
 function open_window(width::Integer, height::Integer, title::AbstractString;
-                     visible::Bool=true, platform::Union{Nothing,Symbol}=nothing, client_api::Symbol=:opengl,
+                     visible::Bool=true, decorated::Bool=true, platform::Union{Nothing,Symbol}=nothing, client_api::Symbol=:opengl,
                      libdecor::Bool=true, context_version::Tuple{Integer,Integer}=(3, 3))
     0 < width <= typemax(Cint) && 0 < height <= typemax(Cint) ||
         throw(ArgumentError("window dimensions must be positive C integers"))
@@ -118,6 +121,7 @@ function open_window(width::Integer, height::Integer, title::AbstractString;
             error("glfwInit failed")
         initialized = true
         hint = symbol(library, :glfwWindowHint)
+        ccall(hint,Cvoid,(Cint,Cint),GLFW_DECORATED,Cint(decorated))
         ccall(hint, Cvoid, (Cint, Cint), GLFW_VISIBLE, visible ? 1 : 0)
         if client_api === :opengl
             ccall(hint, Cvoid, (Cint, Cint), GLFW_CONTEXT_VERSION_MAJOR, context_version[1])

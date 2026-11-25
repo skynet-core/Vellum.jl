@@ -58,3 +58,11 @@ On an X11 desktop, run `julia --project=environments/desktop tools/profile/openg
 Run `julia --project=environments/desktop tools/profile/vulkan.jl` on a Float64-capable Vulkan device with queue timestamps. Open `profiles/vulkan.html` for 30 warmed draws of 32 paths. Each draw submits the production compute kernel, waits for its fence and checks every output channel against the CPU renderer. The GPU interval covers queued input transfers and the draw. The host readback copies the published mapped output. Open `profiles/vulkan.trace.json` in Perfetto to inspect submission, execution and readback per frame. [Vulkan timestamp semantics](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdWriteTimestamp.html)
 
 The same command measures the 13 Julia drawing functions used in the Vulkan kernel. Open `profiles/vulkan-methods.html` and follow a definition to its Julia source. For each function, a specialized compute dispatch writes 8,192 results from runtime inputs. The runner checks each result against Julia and records 51 post-warm-up device intervals. Each interval includes shader-side argument preparation, inlined callees and the output store.
+
+For a queue attached to a real window, `Vellum.VulkanBackend.window_statistics(surface)`
+reports `gpu_ns` for the accepted frame's transfer and fitted blit, and
+`queue_present_ns` for the host call that offered it to the compositor.
+`Vellum.VulkanBackend.statistics(surface).gpu_ns` separately measures the
+production drawing dispatch. Compositor scanout occurs after queue acceptance. Run the virtual window check in the Testing guide
+before running the browser suite with `--reports`. It opens the four captured and reference images alongside
+the coverage and profiling reports.

@@ -13,6 +13,8 @@ const EMPTY_BUFFER = Buffer(C_NULL,C_NULL,C_NULL,0)
 Base.@kwdef mutable struct Target
     size::NTuple{2,Int}
     owner::Int = Threads.threadid()
+    window::Union{Nothing,WindowState} = nothing
+    revision::UInt64 = 0
     instance::VkInstance = C_NULL
     device::VkDevice = C_NULL
     queue::VkQueue = C_NULL
@@ -87,11 +89,11 @@ Return a null-terminated Vulkan device name without exposing the fixed-size padd
 device_name(properties) = String(UInt8[unsigned(c) for c in Iterators.takewhile(!iszero,properties.deviceName)])
 
 """
-    select_device(instance,selector)
+    select_device(instance,selector,surface=C_NULL)
 
 Select a physical device and compute queue family supporting the packet's double coordinates.
 """
-function select_device(instance,selector)
+function select_device(instance,selector,surface=C_NULL)
     count = Ref{UInt32}(0)
     devices = VkPhysicalDevice[]
     while true
@@ -119,7 +121,15 @@ function select_device(instance,selector)
         vkGetPhysicalDeviceQueueFamilyProperties(physical,count,C_NULL)
         families = Vector{VkQueueFamilyProperties}(undef,count[])
         vkGetPhysicalDeviceQueueFamilyProperties(physical,count,families)
-        family = findfirst(f -> f.queueCount > 0 && !iszero(f.queueFlags & VK_QUEUE_COMPUTE_BIT),families)
+        family = findfirst(eachindex(families)) do i
+            f = families[i]
+            f.queueCount > 0 && !iszero(f.queueFlags & VK_QUEUE_COMPUTE_BIT) || return false
+            surface == C_NULL && return true
+            iszero(f.queueFlags & VK_QUEUE_GRAPHICS_BIT) && return false
+            supported = Ref{UInt32}(0)
+            checked(vkGetPhysicalDeviceSurfaceSupportKHR(physical,i-1,surface,supported),:vkGetPhysicalDeviceSurfaceSupportKHR)
+            return !iszero(supported[])
+        end
         isnothing(family) && continue
         priority = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 0 :
                    p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 1 : 2
@@ -131,14 +141,23 @@ function select_device(instance,selector)
 end
 
 """
-    open_device!(t,selector)
+    open_device!(t,selector,window)
 
 Create the logical device and record its memory types and timestamp resolution.
 """
-function open_device!(t,selector)
-    info = VkInstanceCreateInfo(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,C_NULL,0,C_NULL,0,C_NULL,0,C_NULL)
-    t.instance = create_handle(VkInstance,vkCreateInstance,Ref(info))
-    choice = select_device(t.instance,selector)
+function open_device!(t,selector,window)
+    names = isnothing(window) ? String[] : ["VK_KHR_surface",window isa Backend.WaylandWindow ? "VK_KHR_wayland_surface" : "VK_KHR_xlib_surface"]
+    pointers = Cstring[pointer(name) for name in names]
+    GC.@preserve names pointers begin
+        info = VkInstanceCreateInfo(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,C_NULL,0,C_NULL,0,C_NULL,length(names),pointer(pointers))
+        t.instance = create_handle(VkInstance,vkCreateInstance,Ref(info))
+    end
+    if !isnothing(window)
+        t.window = lease_window(window)
+        t.window.surface = native_surface(t.instance,window)
+    end
+    choice = select_device(t.instance,selector,isnothing(window) ? C_NULL : t.window.surface)
+    !isnothing(window) && (t.window.physical = choice.physical)
     p = choice.props
     t.renderer,t.pci,t.driver_version = device_name(p),(p.vendorID,p.deviceID),p.driverVersion
     t.family,t.valid_bits,t.period_ns = choice.family,choice.bits,p.limits.timestampPeriod
@@ -148,13 +167,30 @@ function open_device!(t,selector)
     priority = Float32[1]
     queues = [VkDeviceQueueCreateInfo(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,C_NULL,0,t.family,1,pointer(priority))]
     features = Ref(VkPhysicalDeviceFeatures((UInt32(name === :shaderFloat64) for name in fieldnames(VkPhysicalDeviceFeatures))...))
-    GC.@preserve priority queues features begin
-        info = VkDeviceCreateInfo(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,C_NULL,0,1,pointer(queues),0,C_NULL,0,C_NULL,refptr(features))
+    swapchain_extension = "VK_KHR_swapchain"
+    extensions = isnothing(window) ? Cstring[] : Cstring[pointer(swapchain_extension)]
+    GC.@preserve priority queues features extensions swapchain_extension begin
+        info = VkDeviceCreateInfo(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,C_NULL,0,1,pointer(queues),0,C_NULL,
+            length(extensions),pointer(extensions),refptr(features))
         t.device = create_handle(VkDevice,vkCreateDevice,choice.physical,Ref(info))
     end
     queue = Ref{VkQueue}()
     vkGetDeviceQueue(t.device,t.family,0,queue)
     t.queue = queue[]
+end
+
+"""
+    allocate_memory(t,requirements,flags)
+
+Allocate memory compatible with a Vulkan buffer or image and the required property flags.
+"""
+function allocate_memory(t,requirements,flags)
+    index = findfirst(eachindex(t.memory_types)) do i
+        !iszero(requirements.memoryTypeBits & (UInt32(1)<<(i-1))) && (t.memory_types[i] & flags) == flags
+    end
+    isnothing(index) && throw(ArgumentError("Vulkan device lacks the required memory type"))
+    info = VkMemoryAllocateInfo(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,C_NULL,requirements.size,index-1)
+    return create_handle(VkDeviceMemory,vkAllocateMemory,t.device,Ref(info))
 end
 
 """
@@ -169,14 +205,8 @@ function alloc_buffer(t,bytes,usage;host=false)
     try
         requirements = Ref{VkMemoryRequirements}()
         vkGetBufferMemoryRequirements(t.device,handle,requirements)
-        req = requirements[]
         flags = host ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT : UInt32(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        index = findfirst(eachindex(t.memory_types)) do i
-            !iszero(req.memoryTypeBits & (UInt32(1)<<(i-1))) && (t.memory_types[i] & flags) == flags
-        end
-        isnothing(index) && throw(ArgumentError("Vulkan device lacks the required buffer memory type"))
-        allocate = VkMemoryAllocateInfo(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,C_NULL,req.size,index-1)
-        memory = create_handle(VkDeviceMemory,vkAllocateMemory,t.device,Ref(allocate))
+        memory = allocate_memory(t,requirements[],flags)
         checked(vkBindBufferMemory(t.device,handle,memory,0),:vkBindBufferMemory)
         mapped = Ref{Ptr{Cvoid}}(C_NULL)
         host && checked(vkMapMemory(t.device,memory,0,bytes,0,mapped),:vkMapMemory)
@@ -269,21 +299,22 @@ function slot_offset(slot,bank)
 end
 
 """
-    open_target(selector,size;program=draw_program())
+    open_target(selector,size;program=draw_program(),window=nothing)
 
 Open an independent Vulkan device and double-buffered target, unwinding partial initialization on error.
 """
-function open_target(selector,size;program=draw_program())
+function open_target(selector,size;program=draw_program(),window=nothing)
     t = Target(;size)
     try
-        open_device!(t,selector)
+        open_device!(t,selector,window)
         setup_pipeline!(t,program)
         storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
         t.plan = alloc_buffer(t,Packed.RECORD_BYTES,storage;host=true)
         t.offsets = alloc_buffer(t,sizeof(t.banks),storage;host=true)
         t.atlas = alloc_buffer(t,4slot_offset(length(t.banks),0),storage|VK_BUFFER_USAGE_TRANSFER_DST_BIT)
-        t.output = (alloc_buffer(t,4prod(size),storage;host=true),EMPTY_BUFFER)
-        t.output = (t.output[1],alloc_buffer(t,4prod(size),storage;host=true))
+        output_usage = isnothing(window) ? storage : storage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+        t.output = (alloc_buffer(t,4prod(size),output_usage;host=true),EMPTY_BUFFER)
+        t.output = (t.output[1],alloc_buffer(t,4prod(size),output_usage;host=true))
         return t
     catch
         release!(t)
@@ -317,6 +348,7 @@ function release!(t)
             t.pending.candidate = nothing
             t.pending = nothing
         end
+        !isnothing(t.window) && free_window_device!(t)
         for buffer in (t.staging,t.output...,t.atlas,t.offsets,t.plan)
             free_buffer(t.device,buffer)
         end
@@ -327,6 +359,14 @@ function release!(t)
         end
         vkDestroyDevice(t.device,C_NULL)
         t.device = C_NULL
+    end
+    if !isnothing(t.window)
+        w = t.window
+        w.surface != C_NULL && vkDestroySurfaceKHR(t.instance,w.surface,C_NULL)
+        lock(window_lock) do
+            delete!(leased_windows,w.host)
+        end
+        t.window = nothing
     end
     if t.instance != C_NULL
         vkDestroyInstance(t.instance,C_NULL)
